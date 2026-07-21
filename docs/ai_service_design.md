@@ -2,7 +2,7 @@
 
 - **Component:** AI Query Service
 - **Owner:** Person 2 (Alexander)
-- **Framework:** FastAPI + Ollama (local)
+- **Framework:** Flask + Ollama (local)
 - **MCP Transport:** stdio subprocess (launches Product MCP + Stock MCP on startup)
 - **Status:** design — not yet implemented
 
@@ -25,8 +25,7 @@ Anonymous Customer → Public Interface → AI Query Service → Product MCP →
 
 ```
 ai_service/
-├── main.py                # FastAPI app, lifespan (MCP startup/shutdown), /health
-├── api/
+├── app.py                # Flask app factory, MCP lifecycle, /health
 │   └── routes.py          # POST /questions
 ├── agents/
 │   ├── tool_loop.py       # Ollama tool-calling loop (max 5 rounds, 30s timeout)
@@ -108,9 +107,7 @@ Send to Ollama POST /api/chat (with tool definitions)
 - Max 5 tool-calling rounds
 - 30-second total timeout
 - After timeout or max rounds: use last response as answer, or return `unavailable` if none
-
-**Startup:** On FastAPI lifespan start, launch Product MCP and Stock MCP as stdio subprocesses. Call `list_tools()` on each, build Ollama-compatible function definitions. On shutdown, terminate subprocesses.
-
+**Startup:** In the Flask app factory, launch Product MCP and Stock MCP as stdio subprocesses. Call `list_tools()` on each, build Ollama-compatible function definitions. Register `atexit` or `teardown_appcontext` to terminate subprocesses on shutdown.
 ---
 
 ## 5. System Prompt (`prompts/system_prompt.txt`)
@@ -185,7 +182,7 @@ class QuestionResponse(BaseModel):
 
 | Scenario | HTTP | `status` |
 |---|---|---|
-| Empty/oversized question | 400 | — (FastAPI validation) |
+| Empty/oversized question | 400 | — (manual validation) |
 | Ollama unavailable | 503 | `error` |
 | Ollama timeout | 504 | `error` |
 | Product MCP unavailable | 503 | `error` (can still answer stock-only if Stock MCP works) |
@@ -198,7 +195,7 @@ class QuestionResponse(BaseModel):
 
 ## 9. CORS
 
-Allow `POST`, `GET` from configured `CLIENT_ORIGIN`. Headers: `Content-Type` only.
+Allow `POST`, `GET` from configured `CLIENT_ORIGIN` via `flask-cors`. Headers: `Content-Type` only.
 
 ---
 
@@ -230,8 +227,8 @@ ai_service:
 ## 12. Dependencies
 
 ```
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
+flask>=3.0,<4.0
+gunicorn>=22.0.0
 mcp>=1.0.0
 httpx>=0.27.0
 pydantic>=2.0.0
