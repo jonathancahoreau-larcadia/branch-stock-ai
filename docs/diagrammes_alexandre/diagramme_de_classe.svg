@@ -1,0 +1,65 @@
+@startuml
+
+package "Frontend" {
+
+class PublicInterface {
+    +askQuestion()
+    +displayAnswer()
+}
+
+class BackofficeInterface {
+    +login()
+    +viewStock()
+    +addStock()
+    +removeStock()
+    +manageUsers()
+}
+
+}
+
+package "Backend" {
+
+class BackofficeAPI {
+    +login()
+    +logout()
+    +getStock()
+    +addStock()
+    +removeStock()
+    +manageUsers()
+}
+
+class AIQueryService {
+    +processQuestion()
+}
+
+class ProductMCP {
+    +list_products()
+    +get_product_details()
+}
+
+class StockMCP {
+    +list_branch_stock()
+    +find_branches_with_stock()
+    +get_stock_for_product()
+}
+
+class ProductAPI
+
+class Database
+
+}
+
+PublicInterface --> AIQueryService
+
+BackofficeInterface --> BackofficeAPI
+
+AIQueryService --> ProductMCP
+AIQueryService --> StockMCP
+
+ProductMCP --> ProductAPI
+
+StockMCP --> Database
+
+BackofficeAPI --> Database
+
+@enduml
