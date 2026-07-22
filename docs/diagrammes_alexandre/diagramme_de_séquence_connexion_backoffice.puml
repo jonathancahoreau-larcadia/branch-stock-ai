@@ -1,0 +1,30 @@
+@startuml
+
+actor Employee
+
+participant "Backoffice UI" as UI
+participant "Backoffice API" as API
+database PostgreSQL as DB
+
+Employee -> UI :
+Username + Password
+
+UI -> API :
+POST /login
+
+API -> DB :
+Find user
+
+DB --> API :
+User
+
+API -> API :
+Verify Argon2 password
+
+API --> UI :
+JWT Token
+
+UI --> Employee :
+Dashboard
+
+@enduml
