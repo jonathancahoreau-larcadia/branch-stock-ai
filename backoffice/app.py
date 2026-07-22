@@ -30,6 +30,10 @@ def create_app(test_config: dict | None = None) -> Flask:
     init_extensions(app)
     load_models()
 
+    from .database.seed import seed_command
+
+    app.cli.add_command(seed_command)
+
     app.register_blueprint(health_blueprint)
     app.register_blueprint(auth_blueprint)
     app.register_blueprint(users_blueprint)
