@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Gestion des Utilisateurs - Backoffice{% endblock %}
+
+{% block content %}
+<h2>Gestion des Utilisateurs</h2>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-top: 1.5rem;">
+    <!-- Formulaire de création -->
+    <div class="card">
+        <h3>Créer un utilisateur</h3>
+        <form action="{{ url_for('users_create') }}" method="POST" style="margin-top: 1rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="form-group">
+                <label for="username">Nom d'utilisateur</label>
+                <input type="text" id="username" name="username" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Mot de passe</label>
+                <input type="password" id="password" name="password" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label for="role">Rôle</label>
+                <select name="role" id="role" class="form-control">
+                    <option value="employee">Employé</option>
+                    <option value="admin">Administrateur</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="branch_id">ID Succursale</label>
+                <input type="number" id="branch_id" name="branch_id" class="form-control" value="{{ session.get('branch_id') }}" required>
+            </div>
+
+            <button type="submit" class="btn" style="width: 100%;">Créer le compte</button>
+        </form>
+    </div>
+
+    <!-- Liste des utilisateurs -->
+    <div class="card" style="grid-column: span 2;">
+        <h3>Comptes enregistrés</h3>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nom d'utilisateur</th>
+                    <th>Rôle</th>
+                    <th>Succursale</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>#{{ user.id }}</td>
+                    <td><strong>{{ user.username }}</strong></td>
+                    <td>{{ user.role }}</td>
+                    <td>Succursale #{{ user.branch_id }}</td>
+                    <td>
+                        <form action="{{ url_for('users_update_role') }}" method="POST" style="display: flex; gap: 0.5rem;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="user_id" value="{{ user.id }}">
+                            <select name="role" class="form-control" style="padding: 0.2rem; font-size: 0.85rem;">
+                                <option value="employee" {% if user.role == 'employee' %}selected{% endif %}>Employé</option>
+                                <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+                            </select>
+                            <button type="submit" class="btn" style="padding: 0.2rem 0.5rem; font-size: 0.85rem;">Mettre à jour</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}Gestion du Stock - Backoffice{% endblock %}
+
+{% block extra_head %}
+<style>
+    .grid-forms {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+    .form-row {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-end;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2>Gestion du Stock</h2>
+
+<div class="grid-forms">
+    <!-- Formulaire d'ajout -->
+    <div class="card">
+        <h3>Ajouter au stock</h3>
+        <form action="{{ url_for('stock_add') }}" method="POST" style="margin-top: 1rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            
+            <div class="form-group">
+                <label for="add_product_id">Produit</label>
+                <select name="product_id" id="add_product_id" class="form-control" required>
+                    <option value="">-- Sélectionner un produit --</option>
+                    {% for prod in products %}
+                        <option value="{{ prod.id }}">{{ prod.title }} (${{ prod.price }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="add_quantity">Quantité</label>
+                <input type="number" id="add_quantity" name="quantity" min="1" class="form-control" value="1" required>
+            </div>
+
+            <button type="submit" class="btn" style="background-color: #2e7d32; width: 100%;">+ Entrée de stock</button>
+        </form>
+    </div>
+
+    <!-- Formulaire de retrait -->
+    <div class="card">
+        <h3>Retirer du stock</h3>
+        <form action="{{ url_for('stock_remove') }}" method="POST" style="margin-top: 1rem;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="form-group">
+                <label for="remove_product_id">Produit</label>
+                <select name="product_id" id="remove_product_id" class="form-control" required>
+                    <option value="">-- Sélectionner un produit --</option>
+                    {% for item in stock %}
+                        <option value="{{ item.product_id }}">{{ item.title }} (Dispo: {{ item.quantity }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="remove_quantity">Quantité</label>
+                <input type="number" id="remove_quantity" name="quantity" min="1" class="form-control" value="1" required>
+            </div>
+
+            <button type="submit" class="btn" style="background-color: #c62828; width: 100%;">- Sortie de stock</button>
+        </form>
+    </div>
+</div>
+
+<!-- Table d'état du stock -->
+<div class="card">
+    <h3>État actuel du stock</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>ID Produit</th>
+                <th>Désignation</th>
+                <th>Prix Unitaire</th>
+                <th>Quantité en Stock</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in stock %}
+            <tr>
+                <td>#{{ item.product_id }}</td>
+                <td><strong>{{ item.title }}</strong></td>
+                <td>{% if item.price %}${{ item.price }}{% else %}-{% endif %}</td>
+                <td>
+                    <span style="font-weight: bold; color: {% if item.quantity < 5 %}#c62828{% else %}#2e7d32{% endif %};">
+                        {{ item.quantity }}
+                    </span>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4" style="text-align: center; color: #777;">Aucun produit en stock pour cette succursale.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
