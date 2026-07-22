@@ -5,6 +5,7 @@ from flask import Flask
 from .auth import auth_blueprint
 from .branches import branches_blueprint
 from .config import Config, get_database_url
+from .database import load_models
 from .extensions import init_extensions
 from .health import health_blueprint
 from .products import products_blueprint
@@ -27,6 +28,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         )
 
     init_extensions(app)
+    load_models()
 
     app.register_blueprint(health_blueprint)
     app.register_blueprint(auth_blueprint)
