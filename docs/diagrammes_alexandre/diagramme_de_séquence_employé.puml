@@ -1,0 +1,33 @@
+@startuml
+
+actor Employee
+
+participant "Backoffice UI" as UI
+participant "Backoffice API" as API
+database "PostgreSQL" as DB
+
+Employee -> UI :
+Click "Add Stock"
+
+UI -> API :
+POST /stock/add
+
+API -> API :
+Verify JWT
+
+API -> API :
+Check role
+
+API -> DB :
+UPDATE Stock
+
+DB --> API :
+Updated quantity
+
+API --> UI :
+Success JSON
+
+UI --> Employee :
+Display confirmation
+
+@enduml
