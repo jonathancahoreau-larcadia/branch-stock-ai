@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Stock — Branch Stock AI{% endblock %}
+
+{% block content %}
+<section class="card">
+  <h2 class="card__title">
+    Stock
+    {% if branch %}
+    — {{ branch.name }}
+    {% endif %}
+  </h2>
+
+  {% if error %}
+  <div class="alert alert--error">{{ error }}</div>
+  {% endif %}
+
+  <div class="flex mb-1">
+    <a href="{{ url_for('stock', available_only='true') }}" class="btn btn--small {% if available_only %}btn--active{% endif %}">Disponible seulement</a>
+    <a href="{{ url_for('stock', available_only='false') }}" class="btn btn--small {% if not available_only %}btn--active{% endif %}">Tout</a>
+  </div>
+
+  {% if stocks %}
+  <table>
+    <thead>
+      <tr>
+        <th>Produit</th>
+        <th>Quantité</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in stocks %}
+      <tr>
+        <td>
+          <strong>{{ item.external_product_id }}</strong>
+          {% if item.product and item.product.name %}
+          <br><span class="text-muted text-sm">{{ item.product.name }}</span>
+          {% endif %}
+        </td>
+        <td>{{ item.quantity }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('stock_add') }}" class="form-row" style="display: inline-flex;">
+            <input type="hidden" name="product_id" value="{{ item.external_product_id }}">
+            <input type="number" name="quantity" min="1" value="1" style="width: 70px; margin-bottom: 0;">
+            <button type="submit" class="btn btn--small">+</button>
+          </form>
+          <form method="POST" action="{{ url_for('stock_remove') }}" class="form-row" style="display: inline-flex; margin-left: 0.5rem;">
+            <input type="hidden" name="product_id" value="{{ item.external_product_id }}">
+            <input type="number" name="quantity" min="1" value="1" style="width: 70px; margin-bottom: 0;">
+            <button type="submit" class="btn btn--small btn--danger">−</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted">Aucun produit en stock.</p>
+  {% endif %}
+</section>
+{% endblock %}
