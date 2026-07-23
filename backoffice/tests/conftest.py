@@ -11,6 +11,8 @@ from sqlalchemy.schema import CreateSchema, DropSchema
 from backoffice import create_app
 from backoffice.extensions import db
 
+TEST_JWT_SECRET = "test-only-jwt-secret-not-for-production"
+
 
 @pytest.fixture()
 def app():
@@ -19,6 +21,7 @@ def app():
         {
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": "sqlite+pysqlite:///:memory:",
+            "JWT_SECRET_KEY": TEST_JWT_SECRET,
         }
     )
 
@@ -73,6 +76,7 @@ def postgres_app():
             "ADMIN_INITIAL_PASSWORD": "integration-admin-password",
             "SEED_PRODUCT_ID": "HB-MON-2102",
             "BCRYPT_ROUNDS": "4",
+            "JWT_SECRET_KEY": TEST_JWT_SECRET,
         }
     )
 
