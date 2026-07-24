@@ -20,6 +20,11 @@ ERROR_MESSAGES = {
     "WRONG_TOKEN_TYPE": "Token type is not allowed for this endpoint.",
     "TOKEN_VERSION_INVALID": "Token version is no longer valid.",
     "ACCOUNT_INACTIVE": "Account is inactive.",
+    "FORBIDDEN": "You are not allowed to perform this action.",
+    "USER_NOT_FOUND": "User was not found.",
+    "BRANCH_NOT_FOUND": "Branch was not found.",
+    "USERNAME_ALREADY_EXISTS": "Username is already in use.",
+    "RESERVED_USERNAME": "Username is reserved.",
     "INTERNAL_ERROR": "An unexpected error occurred.",
 }
 

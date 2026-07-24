@@ -22,6 +22,7 @@ def app():
             "TESTING": True,
             "SQLALCHEMY_DATABASE_URI": "sqlite+pysqlite:///:memory:",
             "JWT_SECRET_KEY": TEST_JWT_SECRET,
+            "BCRYPT_ROUNDS": "4",
         }
     )
 
@@ -30,6 +31,24 @@ def app():
 def client(app):
     """Create an HTTP client for the test application."""
     return app.test_client()
+
+
+@pytest.fixture()
+def sqlite_database_app(app):
+    """Create the PostgreSQL-shaped tables in SQLite for HTTP unit tests."""
+    with app.app_context():
+        connection = db.engine.raw_connection()
+        connection.create_function(
+            "btrim",
+            1,
+            lambda value: value.strip(),
+        )
+        connection.create_function("char_length", 1, len)
+        connection.close()
+        db.create_all()
+        yield app
+        db.session.remove()
+        db.drop_all()
 
 
 @pytest.fixture(scope="session")

@@ -9,7 +9,11 @@ from flask import g
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
 
 from backoffice.api_errors import error_response
-from backoffice.database.models import User
+from backoffice.database.models import (
+    ACCESS_TOKEN_TYPE,
+    ADMIN_ROLE,
+    User,
+)
 from backoffice.extensions import db
 
 ViewFunction = TypeVar("ViewFunction", bound=Callable[..., Any])
@@ -81,4 +85,21 @@ def current_user() -> User:
     return cast(User, g.authenticated_user)
 
 
-__all__ = ["current_user", "protected_token_required"]
+def admin_required(function: ViewFunction) -> ViewFunction:
+    """Require an access token whose current database user is an admin."""
+
+    @protected_token_required(token_type=ACCESS_TOKEN_TYPE)
+    @wraps(function)
+    def wrapped(*args: Any, **kwargs: Any):
+        if current_user().role != ADMIN_ROLE:
+            return error_response("FORBIDDEN", 403)
+        return function(*args, **kwargs)
+
+    return cast(ViewFunction, wrapped)
+
+
+__all__ = [
+    "admin_required",
+    "current_user",
+    "protected_token_required",
+]
