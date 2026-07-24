@@ -21,6 +21,7 @@ ERROR_MESSAGES = {
     "TOKEN_VERSION_INVALID": "Token version is no longer valid.",
     "ACCOUNT_INACTIVE": "Account is inactive.",
     "FORBIDDEN": "You are not allowed to perform this action.",
+    "BRANCH_ACCESS_FORBIDDEN": "You cannot access this branch.",
     "USER_NOT_FOUND": "User was not found.",
     "BRANCH_NOT_FOUND": "Branch was not found.",
     "USERNAME_ALREADY_EXISTS": "Username is already in use.",
