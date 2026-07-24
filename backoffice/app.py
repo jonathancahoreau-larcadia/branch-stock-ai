@@ -2,11 +2,12 @@
 
 from flask import Flask
 
-from .auth import auth_blueprint
+from .api_errors import register_api_error_handlers
+from .auth import auth_blueprint, register_jwt_callbacks
 from .branches import branches_blueprint
-from .config import Config, get_database_url
+from .config import Config, get_database_url, get_jwt_secret
 from .database import load_models
-from .extensions import init_extensions
+from .extensions import init_extensions, jwt
 from .health import health_blueprint
 from .products import products_blueprint
 from .stocks import stocks_blueprint
@@ -18,6 +19,8 @@ def create_app(test_config: dict | None = None) -> Flask:
     app = Flask(__name__, static_folder=None)
     app.config.from_object(Config)
     app.config["SQLALCHEMY_DATABASE_URI"] = get_database_url()
+    environment_jwt_secret = get_jwt_secret()
+    app.config["JWT_SECRET_KEY"] = environment_jwt_secret
 
     if test_config is not None:
         app.config.from_mapping(test_config)
@@ -27,8 +30,23 @@ def create_app(test_config: dict | None = None) -> Flask:
             "DATABASE_URL must be set when no test database URI is provided."
         )
 
+    if (
+        not app.testing
+        and (
+            not isinstance(environment_jwt_secret, str)
+            or not environment_jwt_secret.strip()
+        )
+    ):
+        raise RuntimeError(
+            "JWT_SECRET_KEY must be set outside the test environment."
+        )
+    if not app.testing:
+        app.config["JWT_SECRET_KEY"] = environment_jwt_secret
+
     init_extensions(app)
     load_models()
+    register_jwt_callbacks(jwt)
+    register_api_error_handlers(app)
 
     from .database.seed import seed_command
 

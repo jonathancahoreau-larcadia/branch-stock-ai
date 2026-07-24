@@ -1,6 +1,10 @@
 """Configuration defaults and environment loading for the Backoffice."""
 
 import os
+from datetime import timedelta
+
+ACCESS_TOKEN_EXPIRES_IN = 1800
+REFRESH_TOKEN_EXPIRES_IN = 604800
 
 
 def get_database_url() -> str | None:
@@ -15,11 +19,25 @@ def get_database_url() -> str | None:
     return database_url
 
 
+def get_jwt_secret() -> str | None:
+    """Read the JWT signing secret without providing an unsafe default."""
+    return os.getenv("JWT_SECRET_KEY")
+
+
 class Config:
     """Base application configuration."""
 
     TESTING = False
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(
+        seconds=ACCESS_TOKEN_EXPIRES_IN
+    )
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(
+        seconds=REFRESH_TOKEN_EXPIRES_IN
+    )
+    JWT_TOKEN_LOCATION = ("headers",)
+    JWT_HEADER_NAME = "Authorization"
+    JWT_HEADER_TYPE = "Bearer"
     PRODUCT_API_BASE_URL = os.getenv(
         "PRODUCT_API_BASE_URL",
         "http://localhost:5001",
