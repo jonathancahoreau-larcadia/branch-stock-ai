@@ -1,4 +1,40 @@
-.venv/
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Pytest
 .pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Flask / runtime
+instance/
+*.db
+*.sqlite3
+
+# Environment files
+.env
+.env.local
+.env.production
