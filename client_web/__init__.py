@@ -1,1 +1,0 @@
-"""Flask web client for the Backoffice API."""
