@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HBntory — Backoffice</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="page-shell">
+    <section id="login-panel" class="card auth-card" aria-labelledby="login-title">
+      <p class="eyebrow">HBntory</p>
+      <h1 id="login-title">Connexion au Backoffice</h1>
+      <p class="muted">
+        Utilisez votre compte administrateur ou utilisateur autorisé.
+      </p>
+
+      <form id="login-form" class="stack">
+        <label for="username">Nom d’utilisateur</label>
+        <input
+          id="username"
+          name="username"
+          autocomplete="username"
+          required
+          value="admin"
+        >
+
+        <label for="password">Mot de passe</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          required
+        >
+
+        <button type="submit">Se connecter</button>
+      </form>
+
+      <p id="login-message" class="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="application" class="app-layout" hidden>
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">HBntory</p>
+          <h1>Gestion des stocks</h1>
+          <p id="current-user" class="muted"></p>
+        </div>
+        <button id="logout-button" type="button" class="secondary">
+          Se déconnecter
+        </button>
+      </header>
+
+      <nav class="card navigation" aria-label="Navigation du Backoffice">
+        <button type="button" data-resource="dashboard">Tableau de bord</button>
+        <button type="button" data-resource="branches">Branches</button>
+        <button type="button" data-resource="products">Produits</button>
+        <button type="button" data-resource="stocks">Stocks</button>
+        <button type="button" data-resource="users">Utilisateurs</button>
+      </nav>
+
+      <section class="card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Vue active</p>
+            <h2 id="view-title">Tableau de bord</h2>
+          </div>
+          <button id="refresh-button" type="button" class="secondary">
+            Actualiser
+          </button>
+        </div>
+
+        <p id="app-message" class="message" role="status" aria-live="polite"></p>
+        <div id="content" class="content-region"></div>
+      </section>
+
+      <section id="stock-operation-panel" class="card" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Opération</p>
+            <h2>Modifier un stock</h2>
+          </div>
+        </div>
+
+        <form id="stock-operation-form" class="stock-form">
+          <label for="stock-product-id">Identifiant du produit</label>
+          <input
+            id="stock-product-id"
+            name="product_id"
+            required
+            placeholder="HB-MON-2102"
+          >
+
+          <label for="stock-quantity">Quantité</label>
+          <input
+            id="stock-quantity"
+            name="quantity"
+            type="number"
+            min="1"
+            step="1"
+            required
+            value="1"
+          >
+
+          <label for="stock-action">Action</label>
+          <select id="stock-action" name="action">
+            <option value="add">Ajouter</option>
+            <option value="remove">Retirer</option>
+          </select>
+
+          <button type="submit">Exécuter</button>
+        </form>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

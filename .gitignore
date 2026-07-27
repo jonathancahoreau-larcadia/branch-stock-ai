@@ -3,3 +3,11 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.agent_role_correction_backups/
+# Local AI and recovery files
+.continue/
+.person3_ui_backups/
+.codex/backups/
+.codex/recovery-before-model-fix/
+.codex/*.before-*
+Dockerfile.before_fix

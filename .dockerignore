@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.venv
+.pytest_cache
+.continue
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+Dockerfile.before_fix
+backoffice/static/Dockerfile.before_fix
+client_web/Dockerfile.before_fix
