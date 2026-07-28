@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Stocks — Backoffice Branch Stock AI{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Stocks</h1>
+  {% if branch %}
+  <p class="page-header__subtitle">Succursale : <strong>{{ branch.name }}</strong></p>
+  {% endif %}
+</div>
+
+<div class="filters">
+  <form method="GET" action="{{ url_for('backoffice.stocks_list') }}" class="form form--inline" id="stock-filters">
+    <div class="form__group form__group--checkbox">
+      <label>
+        <input type="checkbox" name="available_only" value="false" {% if filters.available_only == false %}checked{% endif %}>
+        Afficher tous les stocks (y compris quantité nulle)
+      </label>
+    </div>
+    <div class="form__actions">
+      <button type="submit" class="btn btn--primary">Filtrer</button>
+    </div>
+  </form>
+</div>
+
+{% if branch %}
+<div class="card card--actions">
+  <h3>Ajouter du stock</h3>
+  <form method="POST" action="{{ url_for('backoffice.stocks_add') }}" class="form form--inline" id="stock-add-form">
+    <div class="form__group">
+      <label for="add-product-id">ID produit (SKU)</label>
+      <input type="text" id="add-product-id" name="external_product_id" required placeholder="ex: HB-MON-2102">
+    </div>
+    <div class="form__group">
+      <label for="add-quantity">Quantité</label>
+      <input type="number" id="add-quantity" name="quantity" min="1" required value="1">
+    </div>
+    <button type="submit" class="btn btn--success">Ajouter</button>
+  </form>
+</div>
+
+<div class="card card--actions">
+  <h3>Retirer du stock</h3>
+  <form method="POST" action="{{ url_for('backoffice.stocks_remove') }}" class="form form--inline" id="stock-remove-form">
+    <div class="form__group">
+      <label for="remove-product-id">ID produit (SKU)</label>
+      <input type="text" id="remove-product-id" name="external_product_id" required placeholder="ex: HB-MON-2102">
+    </div>
+    <div class="form__group">
+      <label for="remove-quantity">Quantité</label>
+      <input type="number" id="remove-quantity" name="quantity" min="1" required value="1">
+    </div>
+    <button type="submit" class="btn btn--danger">Retirer</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="table-container">
+  <table class="table" data-testid="stocks-table">
+    <thead>
+      <tr>
+        <th>ID Produit (SKU)</th>
+        <th>Nom produit</th>
+        <th>Quantité</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if stocks %}
+        {% for stock in stocks %}
+        <tr>
+          <td><code>{{ stock.external_product_id }}</code></td>
+          <td>{{ stock.product.name }}</td>
+          <td class="table__numeric">
+            {% if stock.quantity > 0 %}
+              <span class="badge badge--success">{{ stock.quantity }}</span>
+            {% else %}
+              <span class="badge badge--danger">0</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="3" class="table__empty">Aucun stock trouvé pour cette succursale.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

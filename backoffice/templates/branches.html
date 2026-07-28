@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Succursales — Backoffice Branch Stock AI{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Succursales</h1>
+  <p class="page-header__subtitle">Liste des succursales accessibles</p>
+</div>
+
+<div class="table-container">
+  <table class="table" data-testid="branches-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Nom</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if branches %}
+        {% for branch in branches %}
+        <tr>
+          <td>{{ branch.id }}</td>
+          <td>{{ branch.name }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="2" class="table__empty">Aucune succursale trouvée.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
