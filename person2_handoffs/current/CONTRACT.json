@@ -1,0 +1,103 @@
+{
+  "task_id": "P2-T07",
+  "objective": "Ajouter une génération déterministe de réponses métier fondée exclusivement sur les enveloppes structurées des outils MCP validés, avec projection des seuls champs MCP publics, sans invention, fournisseur IA externe ni anticipation de la route HTTP de P2-T08.",
+  "production_paths": [
+    "ai_service/generator.py"
+  ],
+  "test_paths": [
+    "tests/test_ai_generator.py"
+  ],
+  "documentation_paths": [],
+  "allowed_dependencies": [
+    "Python 3 standard library",
+    "pytest déjà disponible dans l'environnement, uniquement pour exécuter les tests sans ajout au manifeste ni installation",
+    "ai_service.classifier.SUPPORTED_QUESTION_TYPES déjà validé, réutilisé en lecture sans modification"
+  ],
+  "forbidden_paths": [
+    "product_mcp_server/__init__.py",
+    "product_mcp_server/product_api.py",
+    "product_mcp_server/tools.py",
+    "product_mcp_server/server.py",
+    "product_mcp_server/requirements.txt",
+    "tests/test_product_mcp_tools.py",
+    "tests/test_product_mcp_server.py",
+    "integration_tests/test_product_mcp_server.py",
+    "stock_mcp_server/__init__.py",
+    "stock_mcp_server/repository.py",
+    "stock_mcp_server/tools.py",
+    "stock_mcp_server/server.py",
+    "stock_mcp_server/requirements.txt",
+    "tests/test_stock_mcp_repository.py",
+    "tests/test_stock_mcp_tools.py",
+    "tests/test_stock_mcp_server.py",
+    "integration_tests/test_stock_mcp_server.py",
+    "ai_service/__init__.py",
+    "ai_service/classifier.py",
+    "ai_service/mcp_client.py",
+    "ai_service/requirements.txt",
+    "tests/test_ai_classifier.py",
+    "tests/test_ai_mcp_client.py",
+    "backoffice",
+    "client_web",
+    "docker-compose.yml",
+    "docs"
+  ],
+  "required_test_commands": [
+    "python3 -m pytest tests/test_ai_generator.py -q",
+    "python3 -m pytest tests/test_ai_classifier.py tests/test_ai_mcp_client.py tests/test_ai_generator.py -q",
+    "python3 -m pytest --import-mode=importlib tests/test_product_mcp_tools.py tests/test_product_mcp_server.py integration_tests/test_product_mcp_server.py -q",
+    "python3 -m pytest --import-mode=importlib tests/test_stock_mcp_repository.py tests/test_stock_mcp_tools.py tests/test_stock_mcp_server.py integration_tests/test_stock_mcp_server.py -q --deselect tests/test_stock_mcp_repository.py::test_runtime_manifest_contains_only_the_approved_dependency"
+  ],
+  "success_criteria": [
+    "Le workflow reste séquentiel : Rémi approuve ce contrat, Thomas écrit uniquement tests/test_ai_generator.py, Rémi approuve les tests, puis Sam crée uniquement ai_service/generator.py.",
+    "ai_service.generator réexporte ai_service.classifier.SUPPORTED_QUESTION_TYPES dans l'ordre product_details, product_availability, branch_inventory, shopping_list et expose generate_grounded_response(question_type: str, mcp_results: dict[str, dict[str, Any]]) -> dict[str, Any].",
+    "generate_grounded_response accepte exactement les quatre types supportés ou unsupported ; toute autre valeur, toute valeur non chaîne ou tout mcp_results non dictionnaire lève ValueError.",
+    "Pour unsupported, mcp_results doit être vide et la fonction retourne exactement status unsupported, la phrase This question is outside the supported inventory scope. et data contenant seulement supported_question_types avec les quatre types dans l'ordre contractuel.",
+    "Chaque type supporté autorise seulement ses résultats attendus : get_product_details pour product_details ; get_product_details puis get_stock_for_product pour product_availability ; list_products puis list_branch_stock pour branch_inventory ; list_products puis find_branches_for_shopping_list pour shopping_list.",
+    "Une clé d'outil inattendue ou non chaîne lève ValueError ; un résultat attendu absent est traité comme indisponible.",
+    "Seul data d'une enveloppe ayant status success et respectant intégralement le schéma public de l'outil est exploitable ; une enveloppe absente, not_found, error, non dictionnaire ou mal formée est indisponible et son contenu n'est jamais repris.",
+    "Une chaîne requise est une str non vide après strip ; tout entier requis est une int qui n'est pas une bool, et la violation d'une contrainte par un objet ou un élément rend le résultat complet de l'outil indisponible.",
+    "Le schéma de get_product_details exige external_product_id et name comme chaînes non vides ; sa projection contient seulement ces deux champs.",
+    "Le schéma de list_products exige products comme liste éventuellement vide de produits ayant external_product_id et name comme chaînes non vides ; sa projection contient seulement products et ces deux champs par produit.",
+    "Le schéma de get_stock_for_product exige external_product_id non vide et branches comme liste éventuellement vide de branches ayant branch_id entier strictement positif, branch_name non vide et quantity entier positif ou nul ; sa projection contient seulement ces champs.",
+    "Le schéma de list_branch_stock exige branch_id entier strictement positif, branch_name non vide et stocks comme liste éventuellement vide d'articles ayant external_product_id non vide et quantity entier strictement positif ; sa projection contient seulement ces champs.",
+    "Le schéma de find_branches_for_shopping_list exige complete booléen, strategy parmi single_branch, multiple_branches et unavailable, visits comme liste et missing_items comme liste.",
+    "Chaque visite exige branch_id entier strictement positif, branch_name non vide et items comme liste non vide ; chaque article exige external_product_id non vide, requested_quantity entier strictement positif et available_quantity entier supérieur ou égal à requested_quantity.",
+    "Chaque article manquant exige external_product_id non vide et missing_quantity entier strictement positif ; tous les branch_id et toutes les quantités rejettent explicitement les booléens.",
+    "Une liste de courses complete impose strategy single_branch ou multiple_branches, visits non vide et missing_items vide ; single_branch impose une visite et multiple_branches au moins deux visites ; une liste incomplète impose strategy unavailable, visits vide et missing_items non vide.",
+    "La projection de find_branches_for_shopping_list contient seulement complete, strategy, visits et missing_items puis, récursivement, seulement branch_id, branch_name, items, external_product_id, requested_quantity, available_quantity et missing_quantity aux niveaux correspondants.",
+    "Tous les champs supplémentaires de l'enveloppe, de data, des produits, branches, stocks, visites, articles et articles manquants sont tolérés en entrée mais supprimés de tool_results.",
+    "Pour product_availability, deux résultats structurellement valides doivent avoir des external_product_id strictement égaux ; s'ils diffèrent, get_product_details reste exploitable, get_stock_for_product est contradictoire et entièrement exclu de tool_results, le statut vaut partial et answer vaut exactement Some MCP information is available, but it is insufficient for a complete grounded answer.",
+    "Le rejet contextuel d'un Stock contradictoire prime sur la règle générale d'inclusion d'un résultat structurellement valide.",
+    "Le statut vaut success lorsque tous les résultats attendus sont exploitables, partial lorsqu'au moins un résultat est exploitable mais qu'un attendu est absent, indisponible ou contradictoire, et unavailable lorsqu'aucun ne l'est.",
+    "Une shopping_list dont les deux résultats sont exploitables mais dont complete vaut false produit partial ; si un outil attendu est aussi indisponible, la règle de phrase partielle fixe s'applique.",
+    "Une liste branches vide pour product_availability et une liste stocks vide pour branch_inventory restent des résultats success légitimes lorsque tous les outils attendus sont exploitables.",
+    "Une réponse success ou partial contient exactement status, answer et data ; data contient question_type et tool_results, et tool_results associe dans l'ordre contractuel chaque outil exploitable à une projection indépendante de son data.",
+    "tool_results ne contient jamais une enveloppe MCP, une erreur, une donnée indisponible ou contradictoire, ni un champ supplémentaire non prévu par les schémas publics.",
+    "Si partial résulte d'un outil attendu absent, indisponible ou contradictoire, answer vaut exactement Some MCP information is available, but it is insufficient for a complete grounded answer. et ne contient aucun fait métier.",
+    "Lorsque les deux résultats shopping_list sont exploitables mais complete vaut false, answer explique uniquement strategy unavailable et les missing_items projetés reçus sans recalculer une quantité.",
+    "Une réponse unavailable retourne exactement status unavailable, la phrase I do not have enough information to answer this question. et un dictionnaire data vide.",
+    "Les réponses success mentionnent uniquement les noms, identifiants, branches, quantités, stratégies et états présents dans les projections exploitables adaptées à la famille ; elles n'ajoutent aucun prix, attribut ou fait absent.",
+    "La fonction est déterministe, ne modifie ni mcp_results ni ses objets imbriqués, ne conserve aucun état entre appels et retourne des copies indépendantes.",
+    "ai_service.generator dépend seulement de la bibliothèque standard et de ai_service.classifier.SUPPORTED_QUESTION_TYPES ; il n'effectue aucun réseau, accès MCP, HTTP ou PostgreSQL, lecture d'environnement, journalisation, persistance ou appel à un fournisseur IA.",
+    "Aucune nouvelle dépendance n'est déclarée ou installée ; ai_service/requirements.txt reste inchangé et aucun paquet de fournisseur IA, Flask, client HTTP ou fastmcp séparé n'est ajouté.",
+    "Les tests utilisent uniquement des données locales, bloquent toute connexion socket réelle et couvrent les quatre familles, unsupported, les réponses combinées, les trois statuts, les enveloppes défaillantes, tous les schémas imbriqués, le rejet des booléens, la contradiction Product/Stock, les projections sans champs supplémentaires, l'absence de stock, l'absence d'invention, l'immuabilité et l'indépendance des appels.",
+    "Flask, POST /questions, validation JSON, CORS, extraction d'arguments, orchestration des appels MCP, fournisseur IA externe, AI_MODEL, logs de tool calls, Client Web, Docker et tests de bout en bout restent hors périmètre.",
+    "Les huit chemins Product déclarés immuables, les fichiers Stock et AI déjà validés et tout chemin autre que production_paths, test_paths ou documentation_paths restent inchangés.",
+    "Chaque commande de required_test_commands termine avec le code retour 0 après approbation du contrat, approbation des tests et implémentation."
+  ],
+  "source_sections": [
+    "docs/project_context.md §13 — quatre familles supportées, unsupported et interdiction d'inventer des données",
+    "docs/architecture.md §4.7 — combinaison des résultats structurés et génération de réponses fondées",
+    "docs/architecture.md §§10–12 — flux MCP, association familles-outils et explication sans recalcul de la disponibilité",
+    "docs/architecture.md §15 — erreurs stables sans exposition de secrets",
+    "docs/api_contracts.md §8.2 — statuts success, partial, unavailable et unsupported ainsi que réponses publiques de référence",
+    "docs/api_contracts.md §§9–11, spécialement §11.4 — enveloppes MCP et schémas publics des résultats Product, Stock et liste de courses",
+    "docs/security_rules.md §§10–12 — aucune donnée inventée, aucun secret exposé et erreurs stables",
+    "docs/testing_strategy.md §§2 et 10 — doubles locaux et scénarios de génération fondée"
+  ],
+  "public_symbols": [
+    "ai_service.generator.SUPPORTED_QUESTION_TYPES: tuple[str, ...]",
+    "ai_service.generator.generate_grounded_response(question_type: str, mcp_results: dict[str, dict[str, Any]]) -> dict[str, Any]"
+  ]
+}

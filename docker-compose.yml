@@ -1,0 +1,27 @@
+services:
+  backoffice-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: "${DATABASE_URL:-}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-}"
+      PRODUCT_API_BASE_URL: "${PRODUCT_API_BASE_URL:-http://host.docker.internal:5001}"
+    ports:
+      - "5000:5000"
+
+  backoffice-ui:
+    build:
+      context: ./backoffice/static
+      dockerfile: Dockerfile
+    depends_on:
+      - backoffice-api
+    ports:
+      - "8080:80"
+
+  client-web:
+    build:
+      context: ./client_web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HBntory — Liste de courses</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">HBntory</p>
+      <h1>Préparer une liste de produits</h1>
+      <p>
+        Cette interface locale prépare la liste. Le raccordement à l’agent IA
+        et à <code>POST /questions</code> restera bloqué jusqu’à Personne 2.
+      </p>
+    </header>
+
+    <section class="card">
+      <h2>Ajouter un produit</h2>
+      <form id="shopping-form">
+        <label>
+          Produit
+          <input id="product-name" name="product_name" required>
+        </label>
+
+        <label>
+          Quantité
+          <input
+            id="product-quantity"
+            name="quantity"
+            type="number"
+            min="1"
+            step="1"
+            value="1"
+            required
+          >
+        </label>
+
+        <button type="submit">Ajouter à la liste</button>
+      </form>
+      <p id="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card">
+      <div class="heading-row">
+        <h2>Liste actuelle</h2>
+        <button id="clear-button" type="button" class="secondary">
+          Vider
+        </button>
+      </div>
+
+      <ul id="shopping-list"></ul>
+
+      <button id="generate-button" type="button">
+        Générer le résumé
+      </button>
+
+      <pre id="summary-output"></pre>
+    </section>
+  </main>
+</body>
+</html>
