@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Connexion — Backoffice Branch Stock AI{% endblock %}
+{% block content %}
+<div class="login-page">
+  <div class="login-card">
+    <h1>Backoffice</h1>
+    <p class="login-card__subtitle">Branch Stock AI</p>
+    <form method="POST" action="{{ url_for('backoffice.login') }}" class="form" novalidate>
+      <div class="form__group">
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" required autocomplete="username" autofocus>
+      </div>
+      <div class="form__group">
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn--primary btn--full">Se connecter</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

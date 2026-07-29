@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Produits — Backoffice Branch Stock AI{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Produits</h1>
+  <p class="page-header__subtitle">Catalogue produits — consultation uniquement</p>
+</div>
+
+<div class="filters">
+  <form method="GET" action="{{ url_for('backoffice.products_list') }}" class="form form--inline" id="product-filters">
+    <div class="form__group">
+      <label for="q">Recherche</label>
+      <input type="text" id="q" name="q" value="{{ filters.q or '' }}" placeholder="Nom, SKU…">
+    </div>
+    <div class="form__group">
+      <label for="category">Catégorie</label>
+      <input type="text" id="category" name="category" value="{{ filters.category or '' }}" placeholder="Catégorie">
+    </div>
+    <div class="form__group">
+      <label for="sort">Tri</label>
+      <select id="sort" name="sort">
+        <option value="">— Défaut —</option>
+        <option value="name" {% if filters.sort == 'name' %}selected{% endif %}>Nom A-Z</option>
+        <option value="-name" {% if filters.sort == '-name' %}selected{% endif %}>Nom Z-A</option>
+        <option value="sku" {% if filters.sort == 'sku' %}selected{% endif %}>SKU A-Z</option>
+        <option value="-sku" {% if filters.sort == '-sku' %}selected{% endif %}>SKU Z-A</option>
+        <option value="unit_price" {% if filters.sort == 'unit_price' %}selected{% endif %}>Prix croissant</option>
+        <option value="-unit_price" {% if filters.sort == '-unit_price' %}selected{% endif %}>Prix décroissant</option>
+        <option value="updated_at" {% if filters.sort == 'updated_at' %}selected{% endif %}>Récent</option>
+        <option value="-updated_at" {% if filters.sort == '-updated_at' %}selected{% endif %}>Ancien</option>
+      </select>
+    </div>
+    <div class="form__group form__group--checkbox">
+      <label>
+        <input type="checkbox" name="include_discontinued" value="true" {% if filters.include_discontinued == 'true' %}checked{% endif %}>
+        Inclure les produits discontinués
+      </label>
+    </div>
+    <div class="form__actions">
+      <button type="submit" class="btn btn--primary">Filtrer</button>
+      <a href="{{ url_for('backoffice.products_list') }}" class="btn btn--outline">Réinitialiser</a>
+    </div>
+  </form>
+</div>
+
+<div class="table-container">
+  <table class="table" data-testid="products-table">
+    <thead>
+      <tr>
+        <th>SKU</th>
+        <th>Nom</th>
+        <th>Catégorie</th>
+        <th>Marque</th>
+        <th>Prix unitaire</th>
+        <th>Discontinué</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if products %}
+        {% for product in products %}
+        <tr>
+          <td><code>{{ product.external_product_id }}</code></td>
+          <td>{{ product.name }}</td>
+          <td>{{ product.category }}</td>
+          <td>{{ product.brand }}</td>
+          <td class="table__numeric">{{ "%.2f"|format(product.unit_price) }} {{ product.currency }}</td>
+          <td>{% if product.discontinued %}<span class="badge badge--danger">Oui</span>{% else %}<span class="badge badge--success">Non</span>{% endif %}</td>
+          <td><a href="{{ url_for('backoffice.products_detail', external_product_id=product.external_product_id) }}" class="btn btn--sm">Voir les détails</a></td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="7" class="table__empty">Aucun produit trouvé.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+{% if pagination %}
+<div class="pagination">
+  <span class="pagination__info">{{ pagination.total }} produit(s) — page {{ pagination.page }} / {{ pagination.pages }}</span>
+  <div class="pagination__controls">
+    {% if pagination.page > 1 %}
+      <a href="{{ url_for('backoffice.products_list', **pagination.query_params(page=1)) }}" class="btn btn--sm">&laquo; Première</a>
+      <a href="{{ url_for('backoffice.products_list', **pagination.query_params(page=pagination.page - 1)) }}" class="btn btn--sm">&lsaquo; Précédente</a>
+    {% endif %}
+    {% if pagination.page < pagination.pages %}
+      <a href="{{ url_for('backoffice.products_list', **pagination.query_params(page=pagination.page + 1)) }}" class="btn btn--sm">Suivante &rsaquo;</a>
+      <a href="{{ url_for('backoffice.products_list', **pagination.query_params(page=pagination.pages)) }}" class="btn btn--sm">Dernière &raquo;</a>
+    {% endif %}
+  </div>
+  <form method="GET" action="{{ url_for('backoffice.products_list') }}" class="form form--inline pagination__jump">
+    {% for key, value in filters.items() %}
+      {% if key not in ('limit', 'offset') and value %}
+        <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% endif %}
+    {% endfor %}
+    <label for="page-jump">Aller à la page</label>
+    <input type="number" id="page-jump" name="offset" min="0" value="{{ pagination.offset }}" class="input--sm">
+    <input type="hidden" name="limit" value="{{ pagination.limit }}">
+    <button type="submit" class="btn btn--sm">Aller</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

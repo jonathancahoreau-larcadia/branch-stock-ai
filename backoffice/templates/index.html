@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Backoffice Branch Stock AI{% endblock %}
+{% block content %}
+<div class="dashboard">
+  <h1>Dashboard</h1>
+  <p class="dashboard__subtitle">Bienvenue, {{ session.user.username }}</p>
+
+  <div class="dashboard__cards">
+    <a href="{{ url_for('backoffice.products_list') }}" class="card card--link">
+      <h3>Produits</h3>
+      <p>Consulter le catalogue produits et rechercher des articles.</p>
+    </a>
+    <a href="{{ url_for('backoffice.stocks_list') }}" class="card card--link">
+      <h3>Stocks</h3>
+      <p>Gérer les stocks de votre succursale.</p>
+    </a>
+    <a href="{{ url_for('backoffice.branches_list') }}" class="card card--link">
+      <h3>Succursales</h3>
+      <p>Consulter la liste des succursales.</p>
+    </a>
+    {% if session.user.role == 'admin' %}
+    <a href="{{ url_for('backoffice.users_list') }}" class="card card--link">
+      <h3>Utilisateurs</h3>
+      <p>Gérer les utilisateurs et leurs accès.</p>
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

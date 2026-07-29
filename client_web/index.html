@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assistant produits & stock — Branch Stock AI</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="page">
+    <!-- Header -->
+    <header class="page__header">
+      <img
+        src="assets/images/logo.png"
+        alt="Branch Stock AI"
+        width="48"
+        height="48"
+        onerror="this.style.display='none'"
+      >
+      <h1>Assistant produits & stock</h1>
+      <p class="page__subtitle">
+        Posez une question sur un produit ou sa disponibilité en succursale.
+        Aucune connexion requise.
+      </p>
+    </header>
+
+    <!-- Formulaire de question -->
+    <section class="card">
+      <form id="question-form" novalidate>
+        <label for="question-input" class="visually-hidden">Votre question</label>
+        <textarea
+          id="question-input"
+          name="question"
+          rows="3"
+          maxlength="1000"
+          placeholder="Ex. : Quelle succursale a du stock du produit product-123 ?"
+          required
+        ></textarea>
+        <div class="form-row">
+          <span id="char-count" class="char-count">0 / 1000</span>
+          <button type="submit" id="submit-button" disabled>Envoyer</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Indicateur de chargement -->
+    <section id="loading-indicator" class="loading" hidden>
+      <img src="assets/icons/loading.svg" alt="" width="20" height="20" class="spinner" aria-hidden="true">
+      <span>Recherche de la réponse…</span>
+    </section>
+
+    <!-- Messages d'erreur -->
+    <div id="error-alert" class="alert alert--error" hidden></div>
+
+    <!-- Zone de réponse -->
+    <section id="response-area" class="response" aria-live="polite"></section>
+
+    <!-- Exemples de questions -->
+    <section class="examples">
+      <h2>Exemples de questions</h2>
+      <ul>
+        <li>Quelle succursale a du stock du produit product-123 ?</li>
+        <li>Quels produits trouve-t-on à la succursale Toulon ?</li>
+        <li>Donne-moi les détails du produit product-123.</li>
+        <li>Si je veux 3 unités de product-123 et 2 de product-456, où dois-je aller ?</li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
