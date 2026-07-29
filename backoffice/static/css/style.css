@@ -640,3 +640,9 @@ textarea:focus {
 .search-bar {
     margin-bottom: 20px;
 }
+
+.btn--outline {
+    color: red !important;
+    background: white !important;
+    border: 3px solid black !important;
+}
