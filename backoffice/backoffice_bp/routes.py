@@ -272,7 +272,11 @@ def _search_local_products(
     # Filtre catégorie
     if category:
         cat_lower = category.strip().lower()
-        results = [p for p in results if p["category"].lower() == cat_lower]
+        results = [
+            p
+            for p in results
+            if cat_lower in p["category"].lower()
+        ]
 
     # Recherche texte
     if q:
