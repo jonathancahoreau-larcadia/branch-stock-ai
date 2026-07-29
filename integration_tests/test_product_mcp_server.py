@@ -1,15 +1,14 @@
-"""Public behavioral checks for the Product MCP protocol adapter (P2-T02).
+"""Behavioral contract tests for the Product MCP server.
 
-This suite intentionally uses the public MCP session and ASGI interfaces. It
-does not inspect source text or require a socket, Product API, or PostgreSQL.
-The broader integration suite contains the parameterized envelope and schema
-coverage; these tests keep the repository-level server suite compatible with
-that contract.
+The tests use the MCP SDK's in-memory client/server session. Product tool
+functions are replaced with doubles before every call, so the suite never
+contacts the Product API or opens a network socket.
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import importlib
 import json
 from typing import Any
@@ -19,6 +18,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 
 def _load_server(monkeypatch: pytest.MonkeyPatch):
+    """Load the server with harmless configuration for the imported adapter."""
     monkeypatch.setenv("PRODUCT_API_BASE_URL", "http://product-api.invalid")
     return importlib.import_module("product_mcp_server.server")
 
@@ -37,12 +37,13 @@ async def _list_resources_and_prompts(server):
         return await session.list_resources(), await session.list_prompts()
 
 
-async def _call_tool(server, name: str, arguments: dict[str, Any]):
+async def _call_tool(server, name: str, arguments: dict[str, Any] | None = None):
     async with create_connected_server_and_client_session(server.mcp) as session:
         return await session.call_tool(name, arguments)
 
 
 async def _get_asgi(server, path: str) -> tuple[int, bytes]:
+    """Call one public ASGI endpoint without opening a socket."""
     sent: list[dict[str, Any]] = []
     received = False
 
@@ -85,7 +86,7 @@ async def _get_asgi(server, path: str) -> tuple[int, bytes]:
     return start["status"], body
 
 
-def test_repository_server_suite_matches_the_public_mcp_surface(monkeypatch):
+def test_public_tool_list_contains_exactly_the_two_product_tools(monkeypatch):
     server = _load_server(monkeypatch)
 
     result = _run(_list_tools(server))
@@ -101,12 +102,17 @@ def test_repository_server_suite_matches_the_public_mcp_surface(monkeypatch):
         "external_product_id"
     ]
 
+
+def test_no_resources_or_prompts_are_published(monkeypatch):
+    server = _load_server(monkeypatch)
+
     resources, prompts = _run(_list_resources_and_prompts(server))
+
     assert resources.resources == []
     assert prompts.prompts == []
 
 
-def test_repository_server_suite_checks_public_configuration_and_mcp_path(monkeypatch):
+def test_public_server_configuration_and_streamable_http_path(monkeypatch):
     server = _load_server(monkeypatch)
 
     assert server.mcp.name == "Product MCP Server"
@@ -116,12 +122,120 @@ def test_repository_server_suite_checks_public_configuration_and_mcp_path(monkey
     assert settings.streamable_http_path == "/mcp"
     assert settings.stateless_http is True
     assert settings.json_response is True
+
     app = server.mcp.streamable_http_app()
     assert any(route.path == "/mcp" for route in app.routes)
-    assert any(route.path == "/health" for route in app.routes)
+    assert any(route.path == "/health" and "GET" in route.methods for route in app.routes)
 
 
-def test_repository_server_suite_checks_main_transport(monkeypatch):
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        {"status": "success", "data": {"products": []}},
+        {"status": "not_found", "data": None},
+        {
+            "status": "error",
+            "error": {
+                "code": "PRODUCT_API_UNAVAILABLE",
+                "message": "Product API is unavailable.",
+            },
+        },
+    ],
+)
+def test_list_products_delegates_once_and_returns_double_result(
+    monkeypatch, envelope
+):
+    server = _load_server(monkeypatch)
+    product_tools = importlib.import_module("product_mcp_server.tools")
+    expected = copy.deepcopy(envelope)
+    calls: list[tuple[Any, ...]] = []
+
+    async def fake_list_products():
+        calls.append(())
+        return envelope
+
+    monkeypatch.setattr(product_tools, "list_products", fake_list_products)
+
+    result = _run(_call_tool(server, "list_products"))
+
+    assert calls == [()]
+    assert result.isError is False
+    assert result.structuredContent == expected
+    assert envelope == expected
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        {"status": "success", "data": {"external_product_id": "SKU-1"}},
+        {"status": "not_found", "data": None},
+        {
+            "status": "error",
+            "error": {
+                "code": "PRODUCT_API_INVALID_RESPONSE",
+                "message": "Product API response is invalid.",
+            },
+        },
+    ],
+)
+def test_get_product_details_delegates_once_with_exact_argument_and_returns_result(
+    monkeypatch, envelope
+):
+    server = _load_server(monkeypatch)
+    product_tools = importlib.import_module("product_mcp_server.tools")
+    expected = copy.deepcopy(envelope)
+    calls: list[tuple[str]] = []
+    external_product_id = " SKU-1 / blue "
+
+    async def fake_get_product_details(value: str):
+        calls.append((value,))
+        return envelope
+
+    monkeypatch.setattr(
+        product_tools, "get_product_details", fake_get_product_details
+    )
+
+    result = _run(
+        _call_tool(
+            server,
+            "get_product_details",
+            {"external_product_id": external_product_id},
+        )
+    )
+
+    assert calls == [(external_product_id,)]
+    assert result.isError is False
+    assert result.structuredContent == expected
+    assert envelope == expected
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{}, {"external_product_id": 4}, {"external_product_id": None}],
+)
+def test_invalid_product_detail_arguments_are_rejected_before_the_double(
+    monkeypatch, arguments
+):
+    server = _load_server(monkeypatch)
+    product_tools = importlib.import_module("product_mcp_server.tools")
+    calls: list[str] = []
+
+    async def fake_get_product_details(value: str):
+        calls.append(value)
+        return {"status": "success", "data": {}}
+
+    monkeypatch.setattr(
+        product_tools, "get_product_details", fake_get_product_details
+    )
+
+    result = _run(_call_tool(server, "get_product_details", arguments))
+
+    assert result.isError is True
+    assert result.structuredContent is None
+    assert calls == []
+
+
+def test_main_selects_only_streamable_http_transport(monkeypatch):
     server = _load_server(monkeypatch)
     calls: list[dict[str, Any]] = []
 
@@ -135,7 +249,7 @@ def test_repository_server_suite_checks_main_transport(monkeypatch):
     assert calls == [{"transport": "streamable-http"}]
 
 
-def test_repository_server_suite_checks_health_in_memory_without_tool_access(
+def test_health_is_a_public_in_memory_asgi_route_without_calling_product_tools(
     monkeypatch,
 ):
     server = _load_server(monkeypatch)
@@ -152,35 +266,3 @@ def test_repository_server_suite_checks_health_in_memory_without_tool_access(
     assert status == 200
     assert body == b'{"status":"ok"}'
     assert json.loads(body) == {"status": "ok"}
-
-
-def test_repository_server_suite_preserves_structured_delegation(monkeypatch):
-    server = _load_server(monkeypatch)
-    product_tools = importlib.import_module("product_mcp_server.tools")
-    calls: list[tuple[str, Any]] = []
-    list_envelope = {"status": "success", "data": {"products": []}}
-    detail_envelope = {"status": "not_found", "data": None}
-
-    async def fake_list_products():
-        calls.append(("list", None))
-        return list_envelope
-
-    async def fake_get_product_details(value: str):
-        calls.append(("detail", value))
-        return detail_envelope
-
-    monkeypatch.setattr(product_tools, "list_products", fake_list_products)
-    monkeypatch.setattr(
-        product_tools, "get_product_details", fake_get_product_details
-    )
-
-    list_result = _run(_call_tool(server, "list_products", {}))
-    detail_result = _run(
-        _call_tool(server, "get_product_details", {"external_product_id": "SKU-1"})
-    )
-
-    assert calls == [("list", None), ("detail", "SKU-1")]
-    assert list_result.isError is False
-    assert list_result.structuredContent == list_envelope
-    assert detail_result.isError is False
-    assert detail_result.structuredContent == detail_envelope

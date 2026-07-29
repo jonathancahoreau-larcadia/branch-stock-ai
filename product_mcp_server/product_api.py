@@ -1,92 +1,113 @@
-"""Product API adapter for the MCP server.
+"""Asynchronous, read-only access to the external Product API."""
 
-This module handles asynchronous HTTP calls to the external Product API
-and normalizes responses into structured result shapes.
-"""
+from __future__ import annotations
 
+import math
 import os
+from typing import Any
+from urllib.parse import quote, urlsplit
+
 import httpx
-from typing import Dict, Any, Optional
-
-# Default timeout in seconds
-DEFAULT_TIMEOUT = 10
-
-# Retrieve base URL from environment; raise structured error if missing
-PRODUCT_API_BASE_URL = os.environ.get("PRODUCT_API_BASE_URL")
-if not PRODUCT_API_BASE_URL:
-    raise ValueError("PRODUCT_API_BASE_URL environment variable is required.")
 
 
-async def list_products() -> Dict[str, Any]:
-    """Fetch the list of all products from the external API.
+DEFAULT_TIMEOUT = 5
 
-    Returns:
-        A structured result dictionary with data or error information.
-    """
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+_INVALID_CONFIGURATION = {
+    "status": "error",
+    "error": {
+        "code": "PRODUCT_API_INVALID_CONFIGURATION",
+        "message": "Product API configuration is invalid.",
+    },
+}
+_TIMEOUT = {
+    "status": "error",
+    "error": {
+        "code": "PRODUCT_API_TIMEOUT",
+        "message": "Product API request timed out.",
+    },
+}
+_UNAVAILABLE = {
+    "status": "error",
+    "error": {
+        "code": "PRODUCT_API_UNAVAILABLE",
+        "message": "Product API is unavailable.",
+    },
+}
+_INVALID_RESPONSE = {
+    "status": "error",
+    "error": {
+        "code": "PRODUCT_API_INVALID_RESPONSE",
+        "message": "Product API response is invalid.",
+    },
+}
+
+
+def _configuration() -> tuple[str, int | float] | None:
+    base_url = os.environ.get("PRODUCT_API_BASE_URL", "").strip()
+    parsed_url = urlsplit(base_url)
+    if (
+        parsed_url.scheme not in {"http", "https"}
+        or not parsed_url.netloc
+        or parsed_url.username is not None
+        or parsed_url.password is not None
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        return None
+
+    timeout_value = os.environ.get("PRODUCT_API_TIMEOUT")
+    if timeout_value is None:
+        timeout: int | float = DEFAULT_TIMEOUT
+    else:
         try:
-            response = await client.get(f"{PRODUCT_API_BASE_URL}/products")
-            if response.status_code == 200:
-                return {"data": response.json()}
-            elif response.status_code == 404:
-                return {"data": None}
-            else:
-                return {
-                    "error": {
-                        "code": "PRODUCT_API_ERROR",
-                        "message": f"External API returned status code {response.status_code}",
-                    }
-                }
-        except httpx.TimeoutException:
-            return {
-                "error": {
-                    "code": "TIMEOUT_ERROR",
-                    "message": "Timeout while fetching products from external API",
-                }
-            }
-        except httpx.RequestError as e:
-            return {
-                "error": {
-                    "code": "CONNECTION_ERROR",
-                    "message": f"Connection error while fetching products: {str(e)}",
-                }
-            }
+            timeout = float(timeout_value)
+        except ValueError:
+            return None
+        if not math.isfinite(timeout) or timeout <= 0:
+            return None
+
+    return base_url.rstrip("/"), timeout
 
 
-async def get_product_details(external_product_id: str) -> Dict[str, Any]:
-    """Fetch details for a specific product by ID from the external API.
+def _is_json_response(response: httpx.Response) -> bool:
+    content_type = response.headers.get("content-type", "")
+    return content_type.split(";", 1)[0].strip().lower() == "application/json"
 
-    Args:
-        external_product_id: The unique identifier of the product in the external system.
 
-    Returns:
-        A structured result dictionary with data or error information.
-    """
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-        try:
-            response = await client.get(f"{PRODUCT_API_BASE_URL}/products/{external_product_id}")
-            if response.status_code == 200:
-                return {"data": response.json()}
-            elif response.status_code == 404:
-                return {"data": None}
-            else:
-                return {
-                    "error": {
-                        "code": "PRODUCT_API_ERROR",
-                        "message": f"External API returned status code {response.status_code}",
-                    }
-                }
-        except httpx.TimeoutException:
-            return {
-                "error": {
-                    "code": "TIMEOUT_ERROR",
-                    "message": f"Timeout while fetching product details for ID {external_product_id}",
-                }
-            }
-        except httpx.RequestError as e:
-            return {
-                "error": {
-                    "code": "CONNECTION_ERROR",
-                    "message": f"Connection error while fetching product details: {str(e)}",
-                }
-            }
+async def _get(path: str) -> dict[str, Any]:
+    configuration = _configuration()
+    if configuration is None:
+        return _INVALID_CONFIGURATION
+
+    base_url, timeout = configuration
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(f"{base_url}{path}")
+    except httpx.TimeoutException:
+        return _TIMEOUT
+    except httpx.RequestError:
+        return _UNAVAILABLE
+
+    if response.status_code == 404:
+        return {"status": "not_found", "data": None}
+    if 500 <= response.status_code <= 599:
+        return _UNAVAILABLE
+    if response.status_code != 200 or not _is_json_response(response):
+        return _INVALID_RESPONSE
+
+    try:
+        payload = response.json()
+    except (TypeError, ValueError):
+        return _INVALID_RESPONSE
+    return {"status": "success", "data": payload}
+
+
+async def list_products() -> dict[str, Any]:
+    """Fetch one Product API page without exposing transport exceptions."""
+    return await _get("/api/v1/products")
+
+
+async def get_product_details(external_product_id: str) -> dict[str, Any]:
+    """Fetch one product using a safely encoded path component."""
+    encoded_identifier = quote(external_product_id, safe="")
+    return await _get(f"/api/v1/products/{encoded_identifier}")
