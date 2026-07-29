@@ -24,32 +24,104 @@
 
 {% if branch %}
 <div class="card card--actions">
-  <h3>Ajouter du stock</h3>
-  <form method="POST" action="{{ url_for('backoffice.stocks_add') }}" class="form form--inline" id="stock-add-form">
-    <div class="form__group">
-      <label for="add-product-id">ID produit (SKU)</label>
-      <input type="text" id="add-product-id" name="external_product_id" required placeholder="ex: HB-MON-2102">
+    <h3>Gestion du stock</h3>
+
+    <div class="stock-actions">
+
+        <!-- Ajout -->
+        <form method="POST"
+              action="{{ url_for('backoffice.stocks_add') }}"
+              class="form form--inline">
+
+            <div class="form__group">
+                <label>Produit (SKU)</label>
+                <input
+                    type="text"
+                    name="external_product_id"
+                    placeholder="ex: HB-MON-2102"
+                    required>
+            </div>
+
+            <div class="form__group">
+                <label>Quantité</label>
+                <input
+                    type="number"
+                    name="quantity"
+                    min="1"
+                    value="1"
+                    required>
+            </div>
+
+            <button class="btn btn--success">
+                Ajouter
+            </button>
+
+        </form>
+
+        <!-- Retrait -->
+        <form method="POST"
+              action="{{ url_for('backoffice.stocks_remove') }}"
+              class="form form--inline">
+
+            <div class="form__group">
+                <label>Produit (SKU)</label>
+                <input
+                    type="text"
+                    name="external_product_id"
+                    placeholder="ex: HB-MON-2102"
+                    required>
+            </div>
+
+            <div class="form__group">
+                <label>Quantité</label>
+                <input
+                    type="number"
+                    name="quantity"
+                    min="1"
+                    value="1"
+                    required>
+            </div>
+
+            <button class="btn btn--danger">
+                Retirer
+            </button>
+
+        </form>
+
     </div>
-    <div class="form__group">
-      <label for="add-quantity">Quantité</label>
-      <input type="number" id="add-quantity" name="quantity" min="1" required value="1">
-    </div>
-    <button type="submit" class="btn btn--success">Ajouter</button>
-  </form>
 </div>
 
-<div class="card card--actions">
-  <h3>Retirer du stock</h3>
-  <form method="POST" action="{{ url_for('backoffice.stocks_remove') }}" class="form form--inline" id="stock-remove-form">
+<!-- Barre de recherche -->
+<div class="card">
+  <form method="GET"
+        action="{{ url_for('backoffice.stocks_list') }}"
+        class="form form--inline">
+
     <div class="form__group">
-      <label for="remove-product-id">ID produit (SKU)</label>
-      <input type="text" id="remove-product-id" name="external_product_id" required placeholder="ex: HB-MON-2102">
+      <label>Rechercher un produit</label>
+      <input
+          type="text"
+          name="search"
+          value="{{ search_query or '' }}"
+          placeholder="Nom du produit ou SKU"
+          style="min-width: 280px;">
     </div>
-    <div class="form__group">
-      <label for="remove-quantity">Quantité</label>
-      <input type="number" id="remove-quantity" name="quantity" min="1" required value="1">
+
+    <div class="form__group form__group--checkbox">
+      <label>
+        <input type="checkbox" name="available_only" value="false" {% if filters.available_only == false %}checked{% endif %}>
+        Tout afficher
+      </label>
     </div>
-    <button type="submit" class="btn btn--danger">Retirer</button>
+
+    <button type="submit" class="btn btn--primary">
+      Rechercher
+    </button>
+
+    {% if search_query %}
+    <a href="{{ url_for('backoffice.stocks_list') }}" class="btn btn--outline">Effacer</a>
+    {% endif %}
+
   </form>
 </div>
 {% endif %}

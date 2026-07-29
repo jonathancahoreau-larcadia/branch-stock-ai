@@ -2,13 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY backoffice/requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY backoffice ./backoffice
 
-ENV FLASK_APP=app.py
+ENV FLASK_APP=backoffice.app
 ENV FLASK_ENV=development
+ENV PYTHONPATH=/app
 
 EXPOSE 5000
 

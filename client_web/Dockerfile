@@ -1,4 +1,4 @@
-FROM nginx:alpine
+FROM docker.io/library/nginx:alpine
 
 # Copy static files to Nginx's default public directory
 COPY . /usr/share/nginx/html

@@ -22,8 +22,8 @@ services:
   # ── Backoffice API (Flask) ───────────────────────────────────
   backoffice:
     build:
-      context: ./backoffice
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backoffice/Dockerfile
     container_name: hbntory-backoffice
     environment:
       DATABASE_URL: postgresql://hbntory:hbntory@postgres:5432/hbntory

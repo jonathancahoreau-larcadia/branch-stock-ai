@@ -41,7 +41,7 @@
       var form = document.getElementById('edit-user-form');
       if (!form) return;
 
-      form.action = '/api/v1/users/' + userId;
+      form.action = '/users/' + userId + '/edit';
       form.querySelector('#edit-username').value = username || '';
       form.querySelector('#edit-branch').value = branchId || '';
       openModal('edit-user-modal');
@@ -55,7 +55,7 @@
       var form = document.getElementById('password-form');
       if (!form) return;
 
-      form.action = '/api/v1/users/' + userId + '/password';
+      form.action = '/users/' + userId + '/password';
       form.querySelector('#new-password').value = '';
       openModal('password-modal');
     });

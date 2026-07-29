@@ -623,3 +623,20 @@ textarea:focus {
   white-space: nowrap;
   border: 0;
 }
+
+.stock-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.stock-actions form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.search-bar {
+    margin-bottom: 20px;
+}
