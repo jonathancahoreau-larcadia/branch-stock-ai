@@ -14,7 +14,7 @@ SUPPORTED_QUESTION_TYPES: tuple[str, ...] = (
 )
 
 _SHOPPING_ITEM_PATTERN = re.compile(
-    r"\b\d+\s+(?:units?\s+of\s+)?[\w-]+\b"
+    r"\b\d+\s+(?:(?:units?|unites?)\s+(?:of|de)\s+)?[\w-]+\b"
 )
 _BRANCH_INVENTORY_PHRASES = (
     "what products",
@@ -24,6 +24,10 @@ _BRANCH_INVENTORY_PHRASES = (
     "branch inventory",
     "inventory in branch",
     "inventory at branch",
+    "quels produits",
+    "produits disponibles dans la succursale",
+    "produits sont disponibles dans la succursale",
+    "inventaire de la succursale",
 )
 _PRODUCT_AVAILABILITY_PHRASES = (
     "which branch",
@@ -32,19 +36,35 @@ _PRODUCT_AVAILABILITY_PHRASES = (
     "stock of",
     "in stock",
     "product availability",
+    "quelle succursale",
+    "quelle agence",
+    "ou trouver",
+    "reste t il",
+    "reste combien",
+    "disponibilite du produit",
 )
 _PRODUCT_DETAILS_PHRASES = (
     "product details",
     "details about",
+    "details of",
     "details for",
     "information about",
     "information on",
     "tell me about",
+    "details du produit",
+    "details sur",
+    "informations sur",
+    "donne moi les details",
 )
 
 
 def _normalize(question: str) -> str:
     normalized = unicodedata.normalize("NFKC", question).casefold()
+    normalized = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", normalized)
+        if not unicodedata.combining(character)
+    )
     without_punctuation = "".join(
         " " if unicodedata.category(character).startswith("P") else character
         for character in normalized

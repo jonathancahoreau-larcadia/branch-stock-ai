@@ -50,9 +50,28 @@ def envelope(data, *, status="success", **extra):
 
 
 def details_data(*, extra=True):
-    result = {"external_product_id": "product-123", "name": "Example product"}
+    result = {
+        "external_product_id": "product-123",
+        "name": "Example product",
+        "description": "A public catalogue product.",
+        "category": "demo",
+        "brand": "HB",
+        "supplier": {
+            "id": "supplier-demo",
+            "name": "HB Supply",
+            "country": "UY",
+            "lead_time_days": 4,
+            "reliability_score": 0.97,
+        },
+        "unit_price": 100.0,
+        "currency": "USD",
+        "discontinued": False,
+        "weight_kg": 1.0,
+        "tags": ["demo"],
+        "updated_at": "2026-07-30T00:00:00Z",
+    }
     if extra:
-        result.update({"description": "DO_NOT_LEAK_DETAIL", "price": 999})
+        result.update({"private_detail": "DO_NOT_LEAK_DETAIL", "price": 999})
     return result
 
 
@@ -306,6 +325,22 @@ def test_product_details_success_projects_only_public_fields_and_is_grounded(gen
         "get_product_details": {
             "external_product_id": "product-123",
             "name": "Example product",
+            "description": "A public catalogue product.",
+            "category": "demo",
+            "brand": "HB",
+            "supplier": {
+                "id": "supplier-demo",
+                "name": "HB Supply",
+                "country": "UY",
+                "lead_time_days": 4,
+                "reliability_score": 0.97,
+            },
+            "unit_price": 100.0,
+            "currency": "USD",
+            "discontinued": False,
+            "weight_kg": 1.0,
+            "tags": ["demo"],
+            "updated_at": "2026-07-30T00:00:00Z",
         }
     }
     assert "product-123" in response["answer"]
@@ -313,6 +348,82 @@ def test_product_details_success_projects_only_public_fields_and_is_grounded(gen
     assert "999" not in response["answer"]
     assert_no_leaked_input_fields(response)
     assert "DO_NOT_LEAK_ENVELOPE" not in json.dumps(response)
+
+
+def test_product_details_answer_uses_the_complete_public_catalogue_projection(generator):
+    source = {
+        "external_product_id": "HB-MON-2102",
+        "name": "Compact Monitor",
+        "description": "A compact business display.",
+        "category": "Displays",
+        "brand": "HB",
+        "supplier": {
+            "id": "supplier-4",
+            "name": "LabForge Supplies",
+            "country": "UY",
+            "lead_time_days": 4,
+            "reliability_score": 0.97,
+        },
+        "unit_price": 169.99,
+        "currency": "USD",
+        "discontinued": False,
+        "weight_kg": 3.9,
+        "tags": ["display", "compact"],
+        "updated_at": "2026-05-22T12:00:00Z",
+        "private_margin": "DO_NOT_LEAK_MARGIN",
+        "supplier_email": "private@example.test",
+    }
+    response = generator.generate_grounded_response(
+        "product_details",
+        {
+            "get_product_details": envelope(source)
+        },
+    )
+
+    assert response["status"] == "success"
+    assert tool_results(response) == {
+        "get_product_details": {
+            "external_product_id": "HB-MON-2102",
+            "name": "Compact Monitor",
+            "description": "A compact business display.",
+            "category": "Displays",
+            "brand": "HB",
+            "supplier": {
+                "id": "supplier-4",
+                "name": "LabForge Supplies",
+                "country": "UY",
+                "lead_time_days": 4,
+                "reliability_score": 0.97,
+            },
+            "unit_price": 169.99,
+            "currency": "USD",
+            "discontinued": False,
+            "weight_kg": 3.9,
+            "tags": ["display", "compact"],
+            "updated_at": "2026-05-22T12:00:00Z",
+        }
+    }
+    answer = response["answer"]
+    for marker in (
+        "HB-MON-2102",
+        "Compact Monitor",
+        "Displays",
+        "HB",
+        "LabForge Supplies",
+        "169.99",
+        "USD",
+    ):
+        assert marker in answer
+    serialized = json.dumps(response, sort_keys=True)
+    assert "DO_NOT_LEAK_MARGIN" not in serialized
+    assert "private@example.test" not in serialized
+
+    source["name"] = "mutated"
+    source["supplier"]["country"] = "mutated"
+    source["tags"].append("mutated")
+    assert tool_results(response)["get_product_details"]["name"] == "Compact Monitor"
+    assert tool_results(response)["get_product_details"]["supplier"]["country"] == "UY"
+    assert tool_results(response)["get_product_details"]["tags"] == ["display", "compact"]
 
 
 def test_product_details_answer_does_not_reuse_values_from_another_product(generator):
@@ -362,6 +473,22 @@ def test_product_availability_success_combines_matching_product_and_stock(genera
         "get_product_details": {
             "external_product_id": "product-123",
             "name": "Example product",
+            "description": "A public catalogue product.",
+            "category": "demo",
+            "brand": "HB",
+            "supplier": {
+                "id": "supplier-demo",
+                "name": "HB Supply",
+                "country": "UY",
+                "lead_time_days": 4,
+                "reliability_score": 0.97,
+            },
+            "unit_price": 100.0,
+            "currency": "USD",
+            "discontinued": False,
+            "weight_kg": 1.0,
+            "tags": ["demo"],
+            "updated_at": "2026-07-30T00:00:00Z",
         },
         "get_stock_for_product": {
             "external_product_id": "product-123",
@@ -391,6 +518,33 @@ def test_product_availability_with_no_branches_is_a_successful_real_empty_stock(
     assert tool_results(response)["get_stock_for_product"]["branches"] == []
     assert "product-123" in response["answer"]
     assert "no stock" in response["answer"].lower()
+
+
+def test_product_availability_filters_zero_quantity_branches_before_answering(generator):
+    response = generator.generate_grounded_response(
+        "product_availability",
+        {
+            "get_product_details": envelope(
+                {"external_product_id": "product-123", "name": "Example product"}
+            ),
+            "get_stock_for_product": envelope(
+                {
+                    "external_product_id": "product-123",
+                    "branches": [
+                        {"branch_id": 7, "branch_name": "Central branch", "quantity": 0},
+                        {"branch_id": 8, "branch_name": "North branch", "quantity": 4},
+                    ],
+                }
+            ),
+        },
+    )
+
+    assert response["status"] == "success"
+    branches = tool_results(response)["get_stock_for_product"]["branches"]
+    assert branches == [{"branch_id": 8, "branch_name": "North branch", "quantity": 4}]
+    assert "Central branch" not in response["answer"]
+    assert "quantity 0" not in response["answer"]
+    assert "North branch" in response["answer"]
 
 
 def test_product_availability_answer_uses_only_the_current_product_and_stock_values(

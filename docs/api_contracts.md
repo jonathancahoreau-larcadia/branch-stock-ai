@@ -608,7 +608,7 @@ Corps :
 
 ```json
 {
-  "question": "Which branch has three units of product X?"
+  "question": "Dans quelle succursale reste-t-il du produit HB-MON-2102 ?"
 }
 ```
 
@@ -619,6 +619,10 @@ Validation :
 - chaîne non vide ;
 - taille maximale recommandée : 1000 caractères ;
 - aucune mémoire conversationnelle.
+- quatre familles reconnues en français et en anglais ;
+- la réponse déterministe utilise la langue détectée dans la question ;
+- Ollama, s’il est activé, ne produit que l’intention structurée et ne
+  reformule jamais la réponse publique.
 
 ### 8.2 Statuts métier
 
@@ -763,6 +767,37 @@ PRODUCT_API_INVALID_RESPONSE
 
 Un produit inconnu retourne `status: "not_found"`.
 
+Succès :
+
+```json
+{
+  "status": "success",
+  "data": {
+    "external_product_id": "HB-MON-2102",
+    "name": "Compact Monitor",
+    "description": "A compact business display.",
+    "category": "Displays",
+    "brand": "HB",
+    "supplier": {
+      "id": "supplier-4",
+      "name": "LabForge Supplies",
+      "country": "UY",
+      "lead_time_days": 4,
+      "reliability_score": 0.97
+    },
+    "unit_price": 169.99,
+    "currency": "USD",
+    "discontinued": false,
+    "weight_kg": 3.9,
+    "tags": ["display", "compact"],
+    "updated_at": "2026-05-22T12:00:00Z"
+  }
+}
+```
+
+Ces champs publics sont validés puis projetés depuis la réponse officielle.
+Ils restent transitoires et ne sont jamais persistés dans PostgreSQL.
+
 ---
 
 ## 11. Stock MCP
@@ -786,6 +821,10 @@ get_stock_for_product(external_product_id: str) -> dict
 Retourne toutes les succursales et quantités connues.
 
 Une liste vide n’est pas une erreur.
+La réponse MCP peut contenir des lignes à zéro. Pour la famille IA
+`product_availability`, le générateur élimine ces lignes avant la réponse et
+annonce explicitement qu’aucune succursale n’a de stock si aucune quantité
+strictement positive ne subsiste.
 
 ### 11.3 `find_branches_with_stock`
 

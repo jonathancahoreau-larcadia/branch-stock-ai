@@ -191,6 +191,20 @@ def test_html_has_anonymous_accessible_contract_and_four_examples():
     ) == 4
 
 
+def test_examples_use_french_public_questions_and_real_demo_identifiers():
+    folded = HTML.casefold()
+    expected_examples = (
+        "donne-moi les détails du produit hb-mon-2102",
+        "dans quelle succursale reste-t-il du hb-mon-2102",
+        "quels produits sont disponibles dans la succursale 2",
+        "où trouver 2 unités de hb-mon-2102 et 3 unités de hb-key-1001",
+    )
+    assert all(example in folded for example in expected_examples)
+    assert folded.count("hb-mon-2102") >= 3
+    assert "hb-key-1001" in folded
+    assert all(identifier not in folded for identifier in ("product-1", "widget", "gadget"))
+
+
 def test_client_posts_trimmed_question_with_exact_anonymous_fetch_options():
     result = run_node(browser_script())
     assert result["request"] == {

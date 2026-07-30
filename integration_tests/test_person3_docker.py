@@ -164,10 +164,12 @@ def test_compose_uses_only_internal_urls_and_the_two_public_ports():
     text = compose_text()
     assert "localhost" not in text and "host.docker.internal" not in text and "5001" not in text
     assert "ports:" not in service_block(text, "external-products-api")
-    assert re.search(r"^\s*-\s*", ports_block("backoffice-ui", text), re.M)
-    assert re.search(r"^\s*-\s*", ports_block("client_web", text), re.M)
-    assert len(re.findall(r"^\s*-\s*", ports_block("backoffice-ui", text), re.M)) == 1
-    assert len(re.findall(r"^\s*-\s*", ports_block("client_web", text), re.M)) == 1
+    assert re.findall(r"^\s*-\s*[\"']?([^\"']+)[\"']?\s*$", ports_block("backoffice-ui", text), re.M) == [
+        "127.0.0.1:${BACKOFFICE_UI_PORT:-8080}:80"
+    ]
+    assert re.findall(r"^\s*-\s*[\"']?([^\"']+)[\"']?\s*$", ports_block("client_web", text), re.M) == [
+        "127.0.0.1:${CLIENT_WEB_PORT:-3000}:80"
+    ]
     assert environment_value("backoffice-api", "PRODUCT_API_BASE_URL", text) == "http://external-products-api:5000"
     assert environment_value("product_mcp_server", "PRODUCT_API_BASE_URL", text) == "http://external-products-api:5000"
     assert environment_value("ai_service", "PRODUCT_MCP_URL", text) == "http://product_mcp_server:8100/mcp"
@@ -182,7 +184,7 @@ def test_compose_uses_only_internal_urls_and_the_two_public_ports():
 
 def test_every_service_has_an_exact_contractual_healthcheck():
     text = compose_text()
-    assert "curl" not in text and "wget" not in text
+    assert "curl" not in text
     for service in SERVICES:
         assert "healthcheck:" in service_block(text, service), service
     assert re.search(r"pg_isready[^\n]*(?:POSTGRES_USER|--username)", service_block(text, "database"))
@@ -203,8 +205,12 @@ def test_every_service_has_an_exact_contractual_healthcheck():
         assert '"status"' in health_body and '"ok"' in health_body
         assert "python" in health_body.casefold()
         assert any(marker in health_body for marker in ("urllib.request", "http.client"))
-    assert "nginx -t" in service_block(text, "backoffice-ui")
-    assert "nginx -t" in service_block(text, "client_web")
+    for service in ("backoffice-ui", "client_web"):
+        block = service_block(text, service)
+        assert "wget" in block, f"{service} must probe HTTP with BusyBox wget"
+        assert "http://127.0.0.1/" in block
+        assert "nginx -t" not in block
+    assert "/health" in service_block(text, "backoffice-ui")
 
 
 def test_dependencies_are_exactly_conditioned_on_healthy_services():
@@ -241,18 +247,24 @@ def test_network_commands_and_public_proxy_are_wired():
     assert "proxy_pass http://ai_service:8000/questions" in (ROOT / "client_web/nginx.conf").read_text()
 
 
-def test_all_services_share_one_named_bridge_network():
+def test_compose_declares_private_and_public_networks_with_exact_membership():
     text = compose_text()
     networks = top_level_network_names(text)
-    assert len(networks) == 1
-    network = next(iter(networks))
-    network_block = top_level_network_block(text)
-    declared = re.search(rf"(?ms)^  {re.escape(network)}:\s*\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)", text)
-    assert declared and re.search(r"^    driver:\s*bridge\s*$", declared.group("body"), re.M)
-    assert re.search(r"^    name:\s*[A-Za-z0-9_.-]+\s*$", declared.group("body"), re.M)
-    assert "internal: true" in declared.group("body").casefold()
-    for service in SERVICES:
-        assert service_network_names(service, text) == {network}, service
+    assert networks == {"branch-stock-internal", "branch-stock-public"}
+    for network, is_internal in (("branch-stock-internal", True), ("branch-stock-public", False)):
+        declared = re.search(
+            rf"(?ms)^  {re.escape(network)}:\s*\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)",
+            text,
+        )
+        assert declared and re.search(r"^    driver:\s*bridge\s*$", declared.group("body"), re.M)
+        if is_internal:
+            assert re.search(r"^    internal:\s*true\s*$", declared.group("body"), re.M)
+        else:
+            assert not re.search(r"^    internal:\s*true\s*$", declared.group("body"), re.M)
+    for service in SERVICES - {"backoffice-ui", "client_web"}:
+        assert service_network_names(service, text) == {"branch-stock-internal"}, service
+    for service in ("backoffice-ui", "client_web"):
+        assert service_network_names(service, text) == {"branch-stock-internal", "branch-stock-public"}, service
 
 
 def test_compose_passes_the_public_client_origin_to_ai_service():
@@ -264,7 +276,7 @@ def test_compose_passes_the_public_client_origin_to_ai_service():
 def test_client_origin_is_http_origin_matching_the_published_client_port():
     text = compose_text()
     client = service_block(text, "client_web")
-    port_match = re.search(r"^\s*-\s*[\"']?\$\{CLIENT_WEB_PORT:-([0-9]+)\}:80[\"']?\s*$", ports_block("client_web", text), re.M)
+    port_match = re.search(r"^\s*-\s*[\"']?127\.0\.0\.1:\$\{CLIENT_WEB_PORT:-([0-9]+)\}:80[\"']?\s*$", ports_block("client_web", text), re.M)
     assert port_match, "client_web must publish the configured client port"
     public_port = int(port_match.group(1))
     raw_origin = environment_value("ai_service", "CLIENT_WEB_ORIGIN", text)

@@ -799,14 +799,22 @@
       );
     }
 
+    let revocationsConfirmed = false;
     try {
-      await Promise.allSettled(revocations);
+      const results = await Promise.allSettled(revocations);
+      revocationsConfirmed = results.every(
+        (result) => result.status === "fulfilled" && result.value.ok
+      );
     } finally {
       clearTokens();
       logoutPending = false;
       logoutButton.disabled = false;
       setLoading(false);
-      showLogin("Vous êtes déconnecté.");
+      showLogin(
+        revocationsConfirmed
+          ? "Vous êtes déconnecté."
+          : "Déconnexion locale effectuée, mais la révocation serveur n’a pas pu être confirmée."
+      );
     }
   });
 

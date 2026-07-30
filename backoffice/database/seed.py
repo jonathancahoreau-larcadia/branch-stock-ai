@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from backoffice.database.models import ADMIN_ROLE, Branch, Stock, User
+from backoffice.config import validate_runtime_value
 from backoffice.extensions import db
 from backoffice.products.client import ProductClient, ProductClientError
 
@@ -43,10 +44,10 @@ class SeedResult:
 
 
 def _validate_password(password: object) -> bytes:
-    if not isinstance(password, str) or not password or not password.strip():
-        raise SeedConfigurationError(
-            "ADMIN_INITIAL_PASSWORD is required and cannot be empty."
-        )
+    try:
+        password = validate_runtime_value("ADMIN_INITIAL_PASSWORD", password)
+    except RuntimeError as exc:
+        raise SeedConfigurationError(str(exc)) from None
 
     encoded_password = password.encode("utf-8")
     if len(encoded_password) > 72:
@@ -133,7 +134,9 @@ def _load_or_create_admin(
         admin.role == ADMIN_ROLE
         and admin.branch_id is None
         and admin.is_active is True
-        and admin.token_version == 0
+        and isinstance(admin.token_version, int)
+        and not isinstance(admin.token_version, bool)
+        and admin.token_version >= 0
         and admin.deleted_at is None
     )
     if not compatible_state:

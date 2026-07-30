@@ -109,6 +109,34 @@ All mandatory services must be running.
 - negative stock is rejected;
 - blocklist `jti` is unique.
 
+### Grand seed de démonstration
+
+Le seed minimal de démarrage et `flask --app backoffice seed-large` restent
+deux commandes indépendantes. Les tests du grand seed vérifient :
+
+- les valeurs par défaut et les options personnalisées ;
+- la limite de 15 succursales et les entiers strictement positifs ;
+- le refus de tout environnement autre que `development`, `local`, `demo`
+  ou `test` ;
+- le refus d’un mot de passe absent, factice ou supérieur à 72 octets UTF-8,
+  sans fuite de valeur ;
+- le dry-run sans écriture ;
+- la pagination complète de l’External Product API, avec erreur intermédiaire
+  et doublons refusés ;
+- le déterminisme logique de la graine 42 ;
+- les nombres de succursales, common users et couples stock attendus ;
+- l’absence de détails Produit en PostgreSQL ;
+- les quantités non négatives et la présence de lignes à zéro ;
+- l’idempotence, la complétion sûre et les conflits sans écrasement ;
+- la conservation de l’admin, du petit seed et des données manuelles ;
+- le rollback complet sur erreur.
+
+Les transports Produit sont toujours remplacés par des doubles. Les tests
+transactionnels utilisent `clean_postgres_app` lorsque `TEST_DATABASE_URL`
+désigne explicitement une base ou un schéma de test ; sinon ils sont marqués
+comme ignorés. Aucun reset et aucun historique de mouvements ne font partie
+de cette commande.
+
 ---
 
 ## 6. Stock Tests
@@ -166,6 +194,11 @@ Expected behavior:
 - clear error;
 - no silent failure.
 
+Automated doubles additionally cover a single page, multiple pages, a final
+partial page, an inconsistent offset or count, a repeated page, an
+intermediate error and duplicate product identifiers. No partial catalogue is
+returned after any invalid page.
+
 ---
 
 ## 9. Stock MCP Tests
@@ -211,6 +244,12 @@ Scenarios:
 - no invented quantity;
 - requests are independent;
 - tool-call logs show tool name and status without secrets.
+- all four families in French and English, including accents, apostrophes,
+  punctuation and hyphenated identifiers;
+- Ollama enabled and disabled without any public-response reformulation;
+- full public product-detail projection;
+- product availability excludes zero-quantity branches and reports a real
+  empty positive-stock result explicitly.
 
 ---
 
@@ -228,6 +267,16 @@ Scenarios:
 - technical error displayed clearly;
 - no conversation history required;
 - realistic examples work.
+- role visibility remains effective when a panel also has a `display` rule;
+- logout always clears local tokens and distinguishes confirmed revocation,
+  HTTP failure and network failure.
+
+Static Compose tests verify the two-network membership, loopback-only UI port
+bindings, absence of published business ports and HTTP healthcheck commands.
+When a Docker daemon is available, the runtime proof must also record eight
+healthy services, HTTP 200 on ports 8080 and 3000, and the exact four security
+headers on `/`, `/health` where applicable. A real-browser role-visibility
+check remains a separate manual proof when no browser engine is installed.
 
 ---
 

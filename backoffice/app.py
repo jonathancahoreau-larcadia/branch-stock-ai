@@ -5,7 +5,12 @@ from flask import Flask
 from .api_errors import register_api_error_handlers
 from .auth import auth_blueprint, register_jwt_callbacks
 from .branches import branches_blueprint
-from .config import Config, get_database_url, get_jwt_secret
+from .config import (
+    Config,
+    get_database_url,
+    get_jwt_secret,
+    validate_runtime_value,
+)
 from .database import load_models
 from .extensions import init_extensions, jwt
 from .health import health_blueprint
@@ -41,16 +46,23 @@ def create_app(test_config: dict | None = None) -> Flask:
             "JWT_SECRET_KEY must be set outside the test environment."
         )
     if not app.testing:
-        app.config["JWT_SECRET_KEY"] = environment_jwt_secret
+        validate_runtime_value("DATABASE_URL", get_database_url())
+        app.config["JWT_SECRET_KEY"] = validate_runtime_value(
+            "JWT_SECRET_KEY", environment_jwt_secret
+        )
 
     init_extensions(app)
     load_models()
     register_jwt_callbacks(jwt)
     register_api_error_handlers(app)
 
+    from .database.admin_password import admin_password_command
+    from .database.large_seed import seed_large_command
     from .database.seed import seed_command
 
     app.cli.add_command(seed_command)
+    app.cli.add_command(seed_large_command)
+    app.cli.add_command(admin_password_command)
 
     app.register_blueprint(health_blueprint)
     app.register_blueprint(auth_blueprint)

@@ -69,6 +69,25 @@ def test_jwt_secret_is_required_outside_tests(monkeypatch):
         create_app()
 
 
+@pytest.mark.parametrize("key", ["JWT_SECRET_KEY", "DATABASE_URL"])
+def test_production_startup_rejects_documented_placeholder_values_without_leaking(
+    monkeypatch, key
+):
+    monkeypatch.setenv("JWT_SECRET_KEY", "real-jwt-secret")
+    monkeypatch.setenv("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.setenv(key, "replace-with-secret")
+
+    with pytest.raises((RuntimeError, ValueError)) as error:
+        create_app(
+            {
+                "TESTING": False,
+                "SQLALCHEMY_DATABASE_URI": "sqlite+pysqlite:///:memory:",
+            }
+        )
+
+    assert "replace-with-secret" not in str(error.value)
+
+
 def test_non_test_config_cannot_inject_jwt_secret(monkeypatch):
     """Only the environment may supply a production signing secret."""
     monkeypatch.delenv("JWT_SECRET_KEY", raising=False)

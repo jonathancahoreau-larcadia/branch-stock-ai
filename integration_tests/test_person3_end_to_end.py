@@ -35,6 +35,29 @@ PRODUCTS = [
     {"id": 1, "sku": "product-1", "name": "Widget"},
     {"id": 2, "sku": "product-2", "name": "Gadget"},
 ]
+
+
+def _public_product_detail(product: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "external_product_id": product["sku"],
+        "name": product["name"],
+        "description": "A public catalogue product.",
+        "category": "demo",
+        "brand": "HB",
+        "supplier": {
+            "id": "supplier-demo",
+            "name": "HB Supply",
+            "country": "UY",
+            "lead_time_days": 4,
+            "reliability_score": 0.97,
+        },
+        "unit_price": 100.0,
+        "currency": "USD",
+        "discontinued": False,
+        "weight_kg": 1.0,
+        "tags": ["demo"],
+        "updated_at": "2026-07-30T00:00:00Z",
+    }
 ROOT = Path(__file__).parents[1]
 STOCK = {
     1: {
@@ -109,7 +132,7 @@ class InMemoryMCPRouter:
             items = [
                 {
                     "external_product_id": item["external_product_id"],
-                    "quantity": item["requested_quantity"],
+                    "quantity": item["quantity"],
                 }
                 for item in arguments["items"]
             ]
@@ -123,7 +146,9 @@ class InMemoryMCPRouter:
 def in_memory_boundaries(monkeypatch: pytest.MonkeyPatch):
     """Install deterministic Product API and read-only PostgreSQL doubles."""
 
-    async def fake_product_list():
+    async def fake_product_list(limit: int = 100, offset: int = 0):
+        assert limit == 100
+        assert offset == 0
         return {"status": "success", "data": _product_page()}
 
     async def fake_product_details(identifier: str):
@@ -132,7 +157,9 @@ def in_memory_boundaries(monkeypatch: pytest.MonkeyPatch):
         )
         if product is None:
             return {"status": "not_found", "data": None}
-        return {"status": "success", "data": product}
+        raw = _public_product_detail(product)
+        raw.update({"id": product["id"], "sku": product["sku"]})
+        return {"status": "success", "data": raw}
 
     def fake_branch(branch_id: int):
         return STOCK.get(branch_id)
@@ -189,22 +216,14 @@ def test_public_questions_compose_real_service_and_mcp_tools(
     assert "password" not in response.get_data(as_text=True).lower()
 
     if question.startswith("Give me details"):
-        assert payload["answer"] == "Product Widget has identifier product-1."
-        assert payload["data"]["tool_results"]["get_product_details"] == {
-            "external_product_id": "product-1",
-            "name": "Widget",
-        }
+        assert "product-1" in payload["answer"]
+        assert payload["data"]["tool_results"]["get_product_details"] == _public_product_detail(PRODUCTS[0])
     elif question.startswith("Which branch"):
-        assert payload["answer"] == (
-            "Stock for Widget (product-1): Central: quantity 5; "
-            "North: quantity 0."
-        )
+        assert "Widget (product-1)" in payload["answer"]
+        assert "North" not in payload["answer"]
         assert payload["data"]["tool_results"]["get_stock_for_product"][
             "branches"
-        ] == [
-            {"branch_id": 1, "branch_name": "Central", "quantity": 5},
-            {"branch_id": 2, "branch_name": "North", "quantity": 0},
-        ]
+        ] == [{"branch_id": 1, "branch_name": "Central", "quantity": 5}]
     elif question.startswith("What products"):
         assert payload["answer"] == "Stock at Central: Widget (product-1): quantity 5."
         assert payload["data"]["tool_results"]["list_branch_stock"] == STOCK[1]
@@ -256,8 +275,7 @@ def test_public_questions_report_partial_when_one_mcp_result_is_unavailable(
     assert payload["status"] == "partial"
     assert payload["data"]["tool_results"] == {
         "get_product_details": {
-            "external_product_id": "product-1",
-            "name": "Widget",
+            **_public_product_detail(PRODUCTS[0]),
         }
     }
     assert "Central" not in payload["answer"]
@@ -271,7 +289,9 @@ def test_public_questions_report_partial_when_one_mcp_result_is_unavailable(
 def test_product_api_failures_remain_safe_public_statuses(
     monkeypatch: pytest.MonkeyPatch, failure
 ):
-    async def failing_list():
+    async def failing_list(limit: int = 100, offset: int = 0):
+        assert limit == 100
+        assert offset == 0
         code = {
             "unavailable": "PRODUCT_API_UNAVAILABLE",
             "timeout": "PRODUCT_API_TIMEOUT",

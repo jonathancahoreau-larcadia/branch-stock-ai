@@ -8,7 +8,10 @@ import unicodedata as _unicodedata
 from typing import Any as _Any
 
 from ai_service.classifier import classify_question as _classify_question
-from ai_service.generator import generate_grounded_response
+from ai_service.generator import (
+    generate_grounded_response,
+    localize_grounded_response as _localize_grounded_response,
+)
 from ai_service.mcp_client import MCPClient
 from ai_service.ollama_client import OllamaClient
 
@@ -28,17 +31,28 @@ _SUPPORTED_TYPES = frozenset(
 _PRODUCT_TOKEN = r"[A-Za-z0-9][A-Za-z0-9_-]*"
 _ITEM = (
     r"[1-9][0-9]*\s+"
-    r"(?:(?:units?)\s+of\s+)?"
+    r"(?:(?:units?|unités?)\s+(?:of|de)\s+)?"
     rf"{_PRODUCT_TOKEN}"
 )
-_PREFIX = r"(?:(?:where\s+can\s+i\s+find|shopping\s+list)\s*:?\s+)?"
-_SEPARATOR = r"(?:\s*,\s*(?:and\s+)?|\s+and\s+)"
-_SHOPPING_PATTERN = rf"{_PREFIX}{_ITEM}(?:{_SEPARATOR}{_ITEM})+[.?!]?"
+_PREFIX = (
+    r"(?:(?:where\s+can\s+i\s+find|shopping\s+list|où\s+trouver)"
+    r"\s*:?\s+)?"
+)
+_SEPARATOR = r"(?:\s*,\s*(?:(?:and|et)\s+)?|\s+(?:and|et)\s+)"
+_SHOPPING_PATTERN = rf"{_PREFIX}{_ITEM}(?:{_SEPARATOR}{_ITEM})+\s*[.?!]?"
 _SHOPPING_ITEM_PATTERN = _re.compile(
-    rf"([1-9][0-9]*)\s+(?:(?:units?)\s+of\s+)?({_PRODUCT_TOKEN})",
+    (
+        rf"([1-9][0-9]*)\s+"
+        rf"(?:(?:units?|unités?)\s+(?:of|de)\s+)?({_PRODUCT_TOKEN})"
+    ),
     flags=_re.IGNORECASE,
 )
-_DIRECT_PRODUCT_ID = _re.compile(r"product-[A-Za-z0-9][A-Za-z0-9_-]*")
+_DIRECT_PRODUCT_ID = _re.compile(
+    r"(?:product-[A-Za-z0-9][A-Za-z0-9_-]*|HB-[A-Z0-9]+-[A-Z0-9]+)"
+)
+_DIRECT_FALLBACK_ID = _re.compile(
+    r"\b(?:product-[A-Za-z0-9][A-Za-z0-9_-]*|HB-[A-Z0-9]+-[A-Z0-9]+)\b"
+)
 _TOKEN_PATTERN = _re.compile(r"[^\W_]+(?:-[^\W_]+)*", flags=_re.UNICODE)
 _SURFACE_TOKENS = frozenset(
     {
@@ -104,7 +118,6 @@ class QuestionService:
             )
         normalized_question = question.strip()
 
-        provider_intent = False
         fallback_code = "AI_PROVIDER_UNAVAILABLE"
         intent: dict[str, object] | None = None
         if self._ollama_enabled:
@@ -118,7 +131,6 @@ class QuestionService:
             else:
                 if self._is_valid_intent(candidate):
                     intent = candidate
-                    provider_intent = True
 
         if intent is None:
             intent = self._fallback_intent(normalized_question)
@@ -133,27 +145,9 @@ class QuestionService:
             question_type, parameters
         )
         grounded = generate_grounded_response(question_type, mcp_results)
-
-        if (
-            provider_intent
-            and question_type in _SUPPORTED_TYPES
-            and grounded.get("status") in {"success", "partial"}
-        ):
-            try:
-                candidate_answer = await self._ollama_client.reformulate(
-                    normalized_question, grounded
-                )
-            except Exception:
-                return grounded
-            if self._is_safe_reformulation(
-                grounded.get("answer"), candidate_answer
-            ):
-                return {
-                    "status": grounded["status"],
-                    "answer": candidate_answer,
-                    "data": grounded["data"],
-                }
-        return grounded
+        return _localize_grounded_response(
+            grounded, self._question_language(normalized_question)
+        )
 
     async def _collect_mcp_results(
         self,
@@ -210,7 +204,7 @@ class QuestionService:
             resolved_items.append(
                 {
                     "external_product_id": resolved_id,
-                    "requested_quantity": item["requested_quantity"],
+                    "quantity": item["requested_quantity"],
                 }
             )
         plan = await self._mcp_client.call_stock_tool(
@@ -303,12 +297,25 @@ class QuestionService:
         if question_type == "unsupported":
             return {"question_type": "unsupported", "parameters": {}}
         if question_type in {"product_details", "product_availability"}:
-            products = _re.findall(
-                rf"\bproduct\s+({_PRODUCT_TOKEN})\b",
-                normalized,
-                flags=_re.IGNORECASE,
-            )
+            direct_ids = _DIRECT_FALLBACK_ID.findall(normalized)
+            if len(direct_ids) == 1:
+                products = direct_ids
+            else:
+                products = _re.findall(
+                    rf"\b(?:product|produit)\s+({_PRODUCT_TOKEN})\b",
+                    normalized,
+                    flags=_re.IGNORECASE,
+                )
             if len(products) != 1:
+                if (
+                    not products
+                    and _re.search(
+                        r"\b(?:ce|cet|cette)\s+produit\b",
+                        normalized,
+                        flags=_re.IGNORECASE,
+                    )
+                ):
+                    return {"question_type": "unsupported", "parameters": {}}
                 return None
             return {
                 "question_type": question_type,
@@ -316,7 +323,7 @@ class QuestionService:
             }
         if question_type == "branch_inventory":
             branches = _re.findall(
-                r"\bbranch\s+([1-9][0-9]*)\b",
+                r"\b(?:branch|succursale|agence)\s+([1-9][0-9]*)\b",
                 normalized,
                 flags=_re.IGNORECASE,
             )
@@ -389,6 +396,41 @@ class QuestionService:
     def _canon(value: str) -> str:
         normalized = _unicodedata.normalize("NFKC", value)
         return " ".join(normalized.split()).casefold()
+
+    @staticmethod
+    def _question_language(question: str) -> str:
+        canonical = _unicodedata.normalize("NFKD", question).casefold()
+        canonical = "".join(
+            character
+            for character in canonical
+            if not _unicodedata.combining(character)
+        )
+        canonical = " ".join(
+            _re.sub(r"[^\w]+", " ", canonical, flags=_re.UNICODE).split()
+        )
+        french_markers = (
+            "agence",
+            "combien",
+            "dans quelle",
+            "details du",
+            "donne moi",
+            "inventaire",
+            "meteo",
+            "ou trouver",
+            "parle moi",
+            "produit",
+            "produits",
+            "quels produits",
+            "reste t il",
+            "succursale",
+            "unite",
+            "unites",
+        )
+        return (
+            "fr"
+            if any(marker in canonical for marker in french_markers)
+            else "en"
+        )
 
     @classmethod
     def _tokens(cls, value: str) -> tuple[str, ...]:

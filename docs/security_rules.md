@@ -27,6 +27,11 @@ Règles :
 - coût configurable ;
 - aucun log du mot de passe ou du hash ;
 - mot de passe initial admin fourni par variable d’environnement.
+- valeurs vides et placeholders manifestes (`replace-with-…`, `replace_me`,
+  `<…>`, `${…}`) refusés au runtime sans recopier leur contenu dans l’erreur ;
+- la commande `flask --app backoffice admin-password` re-hache la valeur
+  runtime, incrémente `token_version` et applique mise à jour ou rollback en
+  une transaction.
 
 Pourquoi pas SHA-256 seul :
 
@@ -93,6 +98,10 @@ sessionStorage
 Règles :
 
 - effacer access et refresh tokens après déconnexion ;
+- considérer la révocation distante comme confirmée uniquement si chaque
+  requête de révocation aboutit avec un statut HTTP réussi ;
+- en cas d’échec réseau ou HTTP, effacer tout de même les jetons locaux et
+  signaler que la révocation serveur n’a pas pu être confirmée ;
 - ne jamais utiliser `localStorage`;
 - ne jamais placer un token dans une URL ;
 - ne jamais afficher un token dans la console ;
@@ -111,6 +120,11 @@ Mesures :
 - dépendances frontend minimales ;
 - validation des entrées ;
 - CORS restrictif.
+
+Les deux interfaces Nginx ajoutent systématiquement, y compris aux réponses
+d’erreur, une CSP same-origin sans `unsafe-inline`, `X-Content-Type-Options:
+nosniff`, `Referrer-Policy: no-referrer` et `X-Frame-Options: DENY`. La CSP
+inclut aussi `frame-ancestors 'none'`.
 
 ---
 
@@ -218,6 +232,11 @@ Cela ne protège pas contre :
 - Product MCP sans accès PostgreSQL ;
 - Stock MCP avec compte SELECT uniquement ;
 - aucun outil `execute_sql`.
+- `list_products` parcourt toutes les pages avec `limit=100`, vérifie
+  `count`, `limit`, `offset`, la longueur de page et les doublons avant de
+  rendre une projection complète ;
+- `get_product_details` ne projette que les champs publics validés du contrat
+  Produit et ne les persiste jamais dans PostgreSQL.
 
 ---
 

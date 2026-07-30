@@ -149,7 +149,8 @@ Responsibilities:
 
 - expose `list_products`;
 - expose `get_product_details`;
-- normalize Product API responses;
+- parcourir et valider toutes les pages de l’API Produit, dans leur ordre ;
+- normaliser la projection publique complète des détails Produit ;
 - return clear errors.
 
 It does not access PostgreSQL.
@@ -186,11 +187,15 @@ Responsibilities:
 - classify supported question types;
 - invoke MCP tools;
 - combine structured results;
-- generate grounded responses;
+- generate grounded French or English responses locally and deterministically;
 - expose tool-call information for debugging;
 - reject unsupported requests clearly.
 
 It has no direct PostgreSQL credentials.
+
+Ollama is optional and may only propose a validated structured intent. It
+never writes or reformulates the public response; this keeps every public
+sentence grounded in the validated MCP projection.
 
 ### 4.8 Client Web Interface
 
@@ -655,9 +660,17 @@ ai_service
 client_web
 ```
 
-Each service uses the internal Docker network.
+All eight services use the `branch-stock-internal` bridge with
+`internal: true`. Only `backoffice-ui` and `client_web` also use the
+non-internal `branch-stock-public` bridge. Those two UI services are the only
+ones that publish host ports, bound to `127.0.0.1`; APIs, MCP services,
+PostgreSQL and the Product API remain internal-only.
 
 HTTP services expose `/health`.
+
+The UI healthchecks perform local HTTP requests with BusyBox `wget` instead
+of merely validating Nginx syntax. Both UIs test `/`, and Backoffice UI also
+tests its `/health` proxy.
 
 The target command is:
 

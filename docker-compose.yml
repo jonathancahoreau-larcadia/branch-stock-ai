@@ -58,6 +58,8 @@ services:
       STOCK_MCP_DATABASE_URL: "${STOCK_MCP_DATABASE_URL:?required}"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?required}"
       ADMIN_INITIAL_PASSWORD: "${ADMIN_INITIAL_PASSWORD:?required}"
+      APP_ENV: "${APP_ENV:-}"
+      LARGE_SEED_USER_PASSWORD: "${LARGE_SEED_USER_PASSWORD:-}"
       SEED_PRODUCT_ID: "${SEED_PRODUCT_ID:-HB-MON-2102}"
       BCRYPT_ROUNDS: "${BCRYPT_ROUNDS:-12}"
       PRODUCT_API_BASE_URL: http://external-products-api:5000
@@ -90,16 +92,17 @@ services:
       backoffice-api:
         condition: service_healthy
     ports:
-      - "${BACKOFFICE_UI_PORT:-8080}:80"
+      - "127.0.0.1:${BACKOFFICE_UI_PORT:-8080}:80"
     healthcheck:
       test:
         - CMD-SHELL
-        - nginx -t
+        - 'wget -q -O /dev/null http://127.0.0.1/ && wget -q -O /dev/null http://127.0.0.1/health'
       interval: 10s
       timeout: 5s
       retries: 3
     networks:
       - branch-stock-internal
+      - branch-stock-public
 
   product_mcp_server:
     build:
@@ -184,22 +187,26 @@ services:
       ai_service:
         condition: service_healthy
     ports:
-      - "${CLIENT_WEB_PORT:-3000}:80"
+      - "127.0.0.1:${CLIENT_WEB_PORT:-3000}:80"
     healthcheck:
       test:
         - CMD-SHELL
-        - nginx -t
+        - 'wget -q -O /dev/null http://127.0.0.1/'
       interval: 10s
       timeout: 5s
       retries: 3
     networks:
       - branch-stock-internal
+      - branch-stock-public
 
 networks:
   branch-stock-internal:
     driver: bridge
     name: branch-stock-internal
     internal: true
+  branch-stock-public:
+    driver: bridge
+    name: branch-stock-public
 
 volumes:
   postgres-data:

@@ -66,6 +66,23 @@ def test_documented_question_examples_are_classified(classifier, question, expec
 @pytest.mark.parametrize(
     ("question", "expected"),
     [
+        ("Donne-moi les détails du produit HB-MON-2102.", "product_details"),
+        ("Dans quelle succursale reste-t-il des écrans ?", "product_availability"),
+        ("Quels produits sont disponibles dans la succursale 2 ?", "branch_inventory"),
+        ("Où trouver 2 unités de X et 3 unités de Y ?", "shopping_list"),
+        ("Il reste combien de HB-MON-2102 ?", "product_availability"),
+        ("Quelle agence possède ce produit ?", "product_availability"),
+    ],
+)
+def test_french_question_families_accept_accents_apostrophes_and_sku_hyphens(
+    classifier, question, expected
+):
+    assert classifier.classify_question(question) == expected
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
         ("  GIVE\tME details\nabout product xx!!! ", "product_details"),
         ("Which—branch has STOCK of product x?!", "product_availability"),
         ("WHAT PRODUCTS are available in branch y…", "branch_inventory"),
