@@ -1,41 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Backoffice Branch Stock AI{% endblock %}
+
 {% block content %}
 <div class="dashboard">
   <h1>Dashboard</h1>
-  <p class="dashboard__subtitle">Bienvenue, <span id="welcome-username"></span></p>
+  <p class="dashboard__subtitle">
+    Bienvenue, <span id="welcome-username"></span>
+  </p>
 
   <div class="dashboard__cards">
     <a href="/products" class="card card--link">
       <h3>Produits</h3>
       <p>Consulter le catalogue produits et rechercher des articles.</p>
     </a>
+
     <a href="/stocks" class="card card--link">
       <h3>Stocks</h3>
       <p>Gérer les stocks de votre succursale.</p>
     </a>
+
     <a href="/branches" class="card card--link">
       <h3>Succursales</h3>
       <p>Consulter la liste des succursales.</p>
     </a>
+
     <a href="/users" class="card card--link" id="dashboard-users-link" hidden>
       <h3>Utilisateurs</h3>
       <p>Gérer les utilisateurs et leurs accès.</p>
     </a>
   </div>
 </div>
-
-<script>
-// Override initDashboard to also show the users card for admins
-const _origInitDashboard = initDashboard;
-initDashboard = async function() {
-  await _origInitDashboard();
-  const user = getCurrentUser();
-  const usersLink = document.getElementById("dashboard-users-link");
-  if (usersLink && user && user.role === "admin") {
-    usersLink.hidden = false;
-  }
-};
-</script>
 {% endblock %}
-</write_to_file>

@@ -43,4 +43,4 @@ async function loadBranches() {
       '<tr><td colspan="2" class="table__empty">Erreur de chargement.</td></tr>';
   }
 }
-</write_to_file>
+window.initBranchesPage = initBranchesPage;

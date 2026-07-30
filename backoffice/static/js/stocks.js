@@ -154,4 +154,4 @@ function initStockForms() {
     });
   }
 }
-</write_to_file>
+window.initStocksPage = initStocksPage;

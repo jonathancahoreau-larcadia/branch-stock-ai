@@ -235,4 +235,4 @@ function initUserForms() {
     });
   }
 }
-</write_to_file>
+window.initUsersPage = initUsersPage;

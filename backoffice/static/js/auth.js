@@ -152,4 +152,7 @@ function initLoginPage() {
     }
   });
 }
-</write_to_file>
+window.initLoginPage = initLoginPage;
+window.requireAuth = requireAuth;
+window.getCurrentUser = getCurrentUser;
+window.logout = logout;

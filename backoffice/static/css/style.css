@@ -129,10 +129,10 @@ a:hover {
 
 /* Main content */
 .app__main {
-  margin-left: var(--sidebar-width);
   flex: 1;
+  margin-left: var(--sidebar-width);
   padding: 32px;
-  max-width: 1200px;
+  min-width: 0;
 }
 
 /* ---------- Typography ---------- */

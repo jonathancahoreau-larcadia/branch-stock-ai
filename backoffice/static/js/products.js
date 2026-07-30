@@ -168,4 +168,5 @@ function setTextContent(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value || "—";
 }
-</write_to_file>
+window.initProductsPage = initProductsPage;
+window.initProductDetailPage = initProductDetailPage;

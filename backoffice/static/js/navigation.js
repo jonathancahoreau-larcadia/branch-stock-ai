@@ -9,6 +9,7 @@ function initNavigation() {
   if (!sidebar) return;
 
   const user = getCurrentUser();
+  console.log(user);
   if (!user) return;
 
   const currentPath = window.location.pathname;
@@ -52,4 +53,4 @@ function initNavigation() {
 
   document.getElementById("logout-btn")?.addEventListener("click", logout);
 }
-</write_to_file>
+window.initNavigation = initNavigation;
