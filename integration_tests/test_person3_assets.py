@@ -103,8 +103,10 @@ def test_existing_web_assets_keep_public_local_references():
     assert "proxy_pass http://backoffice-api:5000" in read("backoffice/static/nginx.conf")
     proxy = read("client_web/nginx.conf")
     assert re.search(r"location\s*=\s*/questions\s*\{|location\s+/questions\s*\{", proxy)
+    assert re.search(r"location\s*=\s*/health\s*\{", proxy)
     assert re.findall(r"(?m)^\s*proxy_pass\s+([^;]+);", proxy) == [
-        "http://ai_service:8000/questions"
+        "http://ai_service:8000/questions",
+        "http://ai_service:8000/health",
     ]
 
 

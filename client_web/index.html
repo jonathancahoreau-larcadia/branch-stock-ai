@@ -3,58 +3,162 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HBntory — Assistant stock public</title>
+  <meta
+    name="description"
+    content="Assistant public HBntory pour consulter les produits et les stocks."
+  >
+  <title>HBntory — Assistant produits et stocks</title>
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
 </head>
 <body>
-  <main class="shell">
-    <header class="hero">
-      <p class="eyebrow">HBntory</p>
-      <h1>Interroger les produits et les stocks</h1>
-      <p class="lede">
-        Posez une question anonyme. Chaque demande est indépendante et repose
-        uniquement sur les informations disponibles dans HBntory.
-      </p>
-    </header>
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="/" aria-label="HBntory — Accueil">
+        <span class="brand__mark" aria-hidden="true">HB</span>
+        <span class="brand__name">HBntory</span>
+      </a>
 
-    <section class="card" aria-labelledby="question-heading">
-      <h2 id="question-heading">Votre question</h2>
-      <form id="question-form">
-        <label for="question">Question sur les produits ou le stock</label>
-        <div class="question-row">
-          <input
-            id="question"
-            name="question"
-            type="text"
-            maxlength="1000"
-            autocomplete="off"
-            required
-          >
-          <button id="submit-button" type="submit">Demander</button>
+      <div class="topbar__actions">
+        <p
+          id="service-status"
+          class="service-status service-status--checking"
+          role="status"
+          aria-live="polite"
+        >
+          <span class="service-status__dot" aria-hidden="true"></span>
+          <span id="service-status-text">Vérification du service…</span>
+        </p>
+        <button
+          id="clear-button"
+          class="button button--secondary"
+          type="button"
+          disabled
+        >
+          Effacer la conversation
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="workspace" aria-labelledby="page-title">
+      <div class="workspace__heading">
+        <p class="eyebrow">Assistant public</p>
+        <h1 id="page-title">Assistant produits et stocks</h1>
+        <p class="lede">
+          Posez une question en français ou en anglais. HBntory consulte les
+          informations disponibles sans modifier les stocks.
+        </p>
+      </div>
+
+      <div class="conversation-card">
+        <div
+          id="conversation-log"
+          class="conversation-log"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions"
+          aria-label="Conversation avec l’assistant"
+        >
+          <div id="empty-state" class="empty-state">
+            <span class="empty-state__icon" aria-hidden="true">?</span>
+            <h2>Comment puis-je vous aider&nbsp;?</h2>
+            <p>
+              Recherchez un produit, vérifiez sa disponibilité ou préparez
+              une liste d’achats entre plusieurs succursales.
+            </p>
+          </div>
         </div>
-      </form>
 
-      <div class="examples" aria-labelledby="examples-heading">
-        <h3 id="examples-heading">Exemples</h3>
-        <ul>
-          <li><span>Détails (Details) produit (Product)</span> — Donne-moi les détails du produit HB-MON-2102.</li>
-          <li><span>Disponibilité (Availability / Stock)</span> — Dans quelle succursale reste-t-il du HB-MON-2102 ?</li>
-          <li><span>Succursale (Branch)</span> — Quels produits sont disponibles dans la succursale 2 ?</li>
-          <li><span>Achats (Shopping)</span> — Où trouver 2 unités de HB-MON-2102 et 3 unités de HB-KEY-1001 ?</li>
-        </ul>
+        <form id="question-form" class="composer">
+          <label for="question">Votre question</label>
+          <div class="composer__field">
+            <textarea
+              id="question"
+              name="question"
+              rows="3"
+              maxlength="1000"
+              autocomplete="off"
+              aria-describedby="composer-help character-count"
+              placeholder="Ex. Où trouver 2 unités de HB-MON-2102 ?"
+              required
+            ></textarea>
+            <div class="composer__meta">
+              <span id="composer-help">Ctrl + Entrée pour envoyer</span>
+              <span id="character-count" aria-live="off">0 / 1 000</span>
+            </div>
+          </div>
+          <button
+            id="submit-button"
+            class="button button--primary"
+            type="submit"
+            disabled
+          >
+            <span>Envoyer</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </form>
       </div>
     </section>
 
-    <section class="card response-card" aria-labelledby="response-heading">
-      <h2 id="response-heading">Réponse</h2>
-      <p id="request-status" role="status" aria-live="polite"></p>
-      <div id="answer-output" class="answer-output"></div>
-      <details>
-        <summary>Données structurées</summary>
-        <pre id="data-output"></pre>
-      </details>
-    </section>
+    <aside class="sidebar" aria-label="Exemples et aide">
+      <section class="side-card" aria-labelledby="examples-heading">
+        <div class="side-card__heading">
+          <span class="side-card__icon" aria-hidden="true">✦</span>
+          <div>
+            <p class="eyebrow">Suggestions</p>
+            <h2 id="examples-heading">Questions à essayer</h2>
+          </div>
+        </div>
+        <div class="example-list">
+          <button
+            class="example-button"
+            type="button"
+            data-question="Donne-moi les détails du produit HB-MON-2102."
+          >
+            <span>Détails d’un produit</span>
+            Donne-moi les détails du produit HB-MON-2102.
+          </button>
+          <button
+            class="example-button"
+            type="button"
+            data-question="Dans quelle succursale reste-t-il des écrans ?"
+          >
+            <span>Disponibilité</span>
+            Dans quelle succursale reste-t-il des écrans&nbsp;?
+          </button>
+          <button
+            class="example-button"
+            type="button"
+            data-question="Quels produits sont disponibles dans la succursale 2 ?"
+          >
+            <span>Inventaire</span>
+            Quels produits sont disponibles dans la succursale 2&nbsp;?
+          </button>
+          <button
+            class="example-button"
+            type="button"
+            data-question="Où trouver 2 unités de HB-MON-2102 ?"
+          >
+            <span>Liste d’achats</span>
+            Où trouver 2 unités de HB-MON-2102&nbsp;?
+          </button>
+        </div>
+      </section>
+
+      <section class="side-card side-card--help" aria-labelledby="help-heading">
+        <h2 id="help-heading">À savoir</h2>
+        <ul class="help-list">
+          <li>Chaque question est traitée indépendamment.</li>
+          <li>La conversation affichée reste uniquement dans cette page.</li>
+          <li>Aucune opération ne modifie les stocks.</li>
+        </ul>
+      </section>
+    </aside>
   </main>
+
+  <p id="request-status" class="sr-only" role="status" aria-live="polite"></p>
+  <p id="error-live" class="sr-only" role="alert" aria-live="assertive"></p>
 </body>
 </html>
