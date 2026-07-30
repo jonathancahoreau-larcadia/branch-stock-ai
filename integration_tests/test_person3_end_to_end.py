@@ -616,30 +616,109 @@ def test_client_web_executes_anonymously_with_flask_response_fetch_double(
     script = r'''
 const fs = require("fs");
 const vm = require("vm");
-const listeners = {};
-function element(id) {
-  return {id, value: "", disabled: false, textContent: "", dataset: {},
-    className: "", replaceChildren() {}, addEventListener(name, fn) { listeners[id + ":" + name] = fn; }};
+
+class Element {
+  constructor(id = "") {
+    this.id = id;
+    this.value = "";
+    this.disabled = false;
+    this.hidden = false;
+    this.dataset = {};
+    this.className = "";
+    this.children = [];
+    this.parentNode = null;
+    this.listeners = {};
+    this._text = "";
+  }
+  set textContent(value) { this._text = String(value); this.children = []; }
+  get textContent() {
+    return this._text + this.children.map(child => child.textContent || "").join("");
+  }
+  addEventListener(name, fn) { (this.listeners[name] ||= []).push(fn); }
+  dispatch(name, extra = {}) {
+    const event = {preventDefault() {}, target: this, currentTarget: this, ...extra};
+    for (const fn of (this.listeners[name] || [])) fn(event);
+  }
+  append(...nodes) {
+    for (const node of nodes) { node.parentNode = this; this.children.push(node); }
+  }
+  setAttribute() {}
+  scrollIntoView() {}
+  focus() {}
+  remove() {
+    if (this.parentNode) {
+      this.parentNode.children = this.parentNode.children.filter(child => child !== this);
+      this.parentNode = null;
+    }
+  }
+  querySelectorAll(selector) {
+    const className = selector.startsWith(".") ? selector.slice(1) : null;
+    const found = [];
+    const visit = node => {
+      for (const child of node.children) {
+        if (className && child.className.split(/\s+/).includes(className)) found.push(child);
+        visit(child);
+      }
+    };
+    visit(this);
+    return found;
+  }
 }
-const elements = Object.fromEntries(["question-form", "question", "submit-button", "request-status", "answer-output", "data-output"].map(element).map(x => [x.id, x]));
+
+const ids = [
+  "question-form", "question", "submit-button", "clear-button",
+  "conversation-log", "empty-state", "character-count", "request-status",
+  "error-live", "service-status", "service-status-text"
+];
+const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
+elements["conversation-log"].append(elements["empty-state"]);
 const calls = [];
 const context = {
-  document: {querySelector(selector) { return elements[selector.slice(1)]; }, createElement() { return element("created"); }},
-  fetch: async (url, options) => { calls.push([url, options]); return {ok: true, json: async () => PAYLOAD}; },
-  Set, JSON, Error, console
+  document: {
+    querySelector(selector) { return elements[selector.slice(1)]; },
+    querySelectorAll() { return []; },
+    createElement() { return new Element("created"); },
+  },
+  fetch: async (url, options) => {
+    calls.push([url, options]);
+    if (url === "/health") {
+      return {ok: true, status: 200, json: async () => ({status: "ok"})};
+    }
+    return {ok: true, status: 200, json: async () => PAYLOAD};
+  },
+  console,
+  setTimeout,
 };
-vm.runInNewContext(fs.readFileSync("client_web/app.js", "utf8"), context);
-if (elements["submit-button"].disabled !== true) throw new Error("empty question was enabled");
-elements.question.value = "  Where?  ";
-listeners["question:input"]({});
-if (elements["submit-button"].disabled !== false) throw new Error("valid question was disabled");
-listeners["question-form:submit"]({preventDefault() {}}).then(() => {
-  if (calls.length !== 1 || calls[0][0] !== "/questions") throw new Error("wrong fetch route");
-  if (calls[0][1].credentials !== "omit") throw new Error("request was not anonymous");
-  if (calls[0][1].headers.Authorization) throw new Error("authorization leaked");
-  if (elements["answer-output"].textContent !== PAYLOAD.answer) throw new Error("answer not rendered");
-  if (elements["answer-output"].innerHTML !== undefined) throw new Error("unsafe DOM mock");
-}).catch(error => { console.error(error); process.exitCode = 1; });
+
+(async () => {
+  vm.runInNewContext(fs.readFileSync("client_web/app.js", "utf8"), context);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  if (elements["submit-button"].disabled !== true) {
+    throw new Error("empty question was enabled");
+  }
+  elements.question.value = "  Where?  ";
+  elements.question.dispatch("input");
+  if (elements["submit-button"].disabled !== false) {
+    throw new Error("valid question was disabled");
+  }
+  elements["question-form"].dispatch("submit");
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const questionCalls = calls.filter(call => call[0] === "/questions");
+  if (questionCalls.length !== 1) throw new Error("wrong fetch route");
+  if (questionCalls[0][1].credentials !== "omit") {
+    throw new Error("request was not anonymous");
+  }
+  if (questionCalls[0][1].headers.Authorization) {
+    throw new Error("authorization leaked");
+  }
+  if (!elements["conversation-log"].textContent.includes(PAYLOAD.answer)) {
+    throw new Error("answer not rendered");
+  }
+  if (elements["conversation-log"].innerHTML !== undefined) {
+    throw new Error("unsafe DOM mock");
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });
 '''
     result = subprocess.run(
         ["node", "-e", "const PAYLOAD = JSON.parse(process.env.P3_PAYLOAD);\n" + script],

@@ -1,7 +1,7 @@
 """Browser-contract tests for the anonymous Client Web UI.
 
-Node executes the browser script with a tiny local DOM and a fake Fetch.  No
-HTTP server, socket, browser storage, or external service is used.
+Node executes the native browser script with a local DOM and Fetch double.
+No HTTP server, socket, browser storage, or external service is used.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ APP = (ROOT / "client_web" / "app.js").read_text(encoding="utf-8")
 STYLES = (ROOT / "client_web" / "styles.css").read_text(encoding="utf-8")
 
 
-def run_node(script):
+def run_node(script: str) -> dict:
     completed = subprocess.run(
         ["node", "-e", script],
         cwd=ROOT,
@@ -32,289 +32,666 @@ def run_node(script):
     return json.loads(completed.stdout)
 
 
-def browser_script(scenario="success"):
+def browser_script(
+    scenario: str = "success",
+    action: str = "submit",
+    question: str = "  Donne-moi les détails du produit HB-MON-2102.  ",
+) -> str:
     return f"""
 (async () => {{
 const vm = require("vm");
 const appSource = {json.dumps(APP)};
 const scenario = {json.dumps(scenario)};
+const action = {json.dumps(action)};
+const suppliedQuestion = {json.dumps(question)};
 
 class Element {{
-  constructor(tag, id) {{
+  constructor(tag, id = "") {{
     this.tagName = tag.toUpperCase();
-    this.id = id || "";
+    this.id = id;
     this.children = [];
+    this.parentNode = null;
     this.listeners = {{}};
     this.attributes = {{}};
-    this.style = {{}};
-    this.className = "";
     this.dataset = {{}};
-    this.classList = {{
-      add: (...names) => {{ this.className = [...new Set(`${{this.className}} ${{names.join(" ")}}`.trim().split(/\\s+/).filter(Boolean))].join(" "); }},
-      remove: (...names) => {{ this.className = this.className.split(/\\s+/).filter(name => name && !names.includes(name)).join(" "); }},
-      toggle: (name, force) => {{
-        const present = this.className.split(/\\s+/).includes(name);
-        if (force === undefined ? !present : force) this.classList.add(name);
-        else this.classList.remove(name);
-        return force === undefined ? !present : force;
-      }},
-    }};
+    this.className = "";
+    this.hidden = false;
     this.value = "";
     this.disabled = false;
     this.required = false;
     this.maxLength = 0;
-    this.textContent = "";
+    this.type = "";
+    this.dateTime = "";
+    this.focused = false;
+    this._text = "";
+    this.classList = {{
+      add: (...names) => {{
+        const current = this.className.split(/\\s+/).filter(Boolean);
+        this.className = [...new Set([...current, ...names])].join(" ");
+      }},
+      remove: (...names) => {{
+        this.className = this.className.split(/\\s+/)
+          .filter(name => name && !names.includes(name)).join(" ");
+      }},
+    }};
+  }}
+  set textContent(value) {{
+    this._text = String(value);
+    this.children = [];
+  }}
+  get textContent() {{
+    return this._text + this.children.map(child => child.textContent || "").join("");
   }}
   setAttribute(name, value) {{ this.attributes[name] = String(value); }}
   getAttribute(name) {{ return this.attributes[name] ?? null; }}
-  append(...nodes) {{ this.children.push(...nodes); }}
-  appendChild(node) {{ this.children.push(node); return node; }}
-  replaceChildren(...nodes) {{ this.children = nodes; }}
+  append(...nodes) {{
+    for (const node of nodes) {{
+      node.parentNode = this;
+      this.children.push(node);
+    }}
+  }}
+  appendChild(node) {{ this.append(node); return node; }}
   addEventListener(name, callback) {{
     (this.listeners[name] ||= []).push(callback);
   }}
   dispatch(name, extra = {{}}) {{
-    const event = {{ preventDefault() {{}}, target: this, currentTarget: this, ...extra }};
-    for (const callback of (this.listeners[name] || [])) callback(event);
+    const event = {{
+      preventDefault() {{ this.defaultPrevented = true; }},
+      defaultPrevented: false,
+      target: this,
+      currentTarget: this,
+      ...extra,
+    }};
+    return (this.listeners[name] || []).map(callback => callback(event));
+  }}
+  requestSubmit() {{ this.dispatch("submit"); }}
+  remove() {{
+    if (!this.parentNode) return;
+    this.parentNode.children = this.parentNode.children.filter(
+      child => child !== this
+    );
+    this.parentNode = null;
+  }}
+  focus() {{
+    allElements.forEach(element => {{ element.focused = false; }});
+    this.focused = true;
+  }}
+  scrollIntoView() {{}}
+  querySelectorAll(selector) {{
+    const results = [];
+    const className = selector.startsWith(".") ? selector.slice(1) : null;
+    const visit = node => {{
+      for (const child of node.children) {{
+        if (
+          className &&
+          child.className.split(/\\s+/).includes(className)
+        ) results.push(child);
+        visit(child);
+      }}
+    }};
+    visit(this);
+    return results;
   }}
 }}
 
-const elements = new Map([
-  ["#question-form", new Element("form", "question-form")],
-  ["#question", new Element("input", "question")],
-  ["#submit-button", new Element("button", "submit-button")],
-  ["#request-status", new Element("p", "request-status")],
-  ["#answer-output", new Element("div", "answer-output")],
-  ["#data-output", new Element("pre", "data-output")],
-]);
-elements.get("#question").required = true;
-elements.get("#question").maxLength = 1000;
+const selectors = new Map();
+const allElements = [];
+function register(selector, tag) {{
+  const element = new Element(tag, selector.startsWith("#") ? selector.slice(1) : "");
+  selectors.set(selector, element);
+  allElements.push(element);
+  return element;
+}}
+
+const form = register("#question-form", "form");
+const question = register("#question", "textarea");
+const submit = register("#submit-button", "button");
+const clear = register("#clear-button", "button");
+const log = register("#conversation-log", "div");
+const empty = register("#empty-state", "div");
+const counter = register("#character-count", "span");
+const status = register("#request-status", "p");
+const errorLive = register("#error-live", "p");
+const service = register("#service-status", "p");
+const serviceText = register("#service-status-text", "span");
+log.append(empty);
+question.required = true;
+question.maxLength = 1000;
+
+const exampleQuestions = [
+  "Donne-moi les détails du produit HB-MON-2102.",
+  "Dans quelle succursale reste-t-il des écrans ?",
+  "Quels produits sont disponibles dans la succursale 2 ?",
+  "Où trouver 2 unités de HB-MON-2102 ?",
+];
+const examples = exampleQuestions.map(text => {{
+  const element = new Element("button");
+  element.className = "example-button";
+  element.dataset.question = text;
+  allElements.push(element);
+  return element;
+}});
+
+const created = [];
 const document = {{
   querySelector(selector) {{
-    const element = elements.get(selector);
+    const element = selectors.get(selector);
     if (!element) throw new Error("missing selector: " + selector);
     return element;
   }},
-  createElement(tag) {{ return new Element(tag); }},
-  createTextNode(text) {{ const node = new Element("text"); node.textContent = String(text); return node; }},
+  querySelectorAll(selector) {{
+    if (selector === ".example-button") return examples;
+    return [];
+  }},
+  createElement(tag) {{
+    const element = new Element(tag);
+    created.push(element);
+    allElements.push(element);
+    return element;
+  }},
 }};
 globalThis.document = document;
 globalThis.window = globalThis;
 
+function deepFreeze(value) {{
+  if (value && typeof value === "object") {{
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }}
+  return value;
+}}
+
+const successPayload = deepFreeze({{
+  status: "success",
+  answer: "<b>Réponse externe sûre</b>",
+  data: {{
+    question_type: "product_availability",
+    tool_results: {{
+      get_product_details: {{
+        external_product_id: "HB-MON-2102",
+        name: "24 inch Compact Monitor",
+        description: "A compact business display.",
+        category: "Displays",
+        brand: "HB",
+        supplier: {{
+          id: "SUP-LAB-002",
+          name: "LabForge Supplies",
+          country: "US",
+          lead_time_days: 4,
+          reliability_score: 0.9,
+        }},
+        unit_price: 169.99,
+        currency: "USD",
+        discontinued: false,
+        weight_kg: 3.2,
+        tags: ["business"],
+        updated_at: "2026-01-01",
+      }},
+      get_stock_for_product: {{
+        external_product_id: "HB-MON-2102",
+        branches: [{{branch_id: 2, branch_name: "Toulon", quantity: 8}}],
+      }},
+    }},
+  }},
+}});
+const originalSnapshot = JSON.stringify(successPayload);
 let pendingResolve;
-let pendingReject;
 const calls = [];
 globalThis.fetch = (url, options) => {{
   calls.push({{url, options}});
-  if (scenario === "fetch-error") return Promise.reject(new Error("network unavailable"));
-  if (scenario === "invalid-json") return Promise.resolve({{ok: true, status: 200, json: async () => {{ throw new Error("bad json"); }}}});
-  if (scenario === "invalid-payload") return Promise.resolve({{ok: true, status: 200, json: async () => ({{status: "success"}})}});
-  if (scenario === "invalid-answer") return Promise.resolve({{ok: true, status: 200, json: async () => ({{status: "success", answer: 7, data: {{}}}})}});
-  if (scenario === "invalid-data") return Promise.resolve({{ok: true, status: 200, json: async () => ({{status: "success", answer: "ok", data: []}})}});
-  if (scenario === "http-error") return Promise.resolve({{ok: false, status: 503, json: async () => ({{status: "error", error: {{code: "UPSTREAM", message: "Service unavailable"}}}})}});
-  if (scenario === "http-error-unstructured") return Promise.resolve({{ok: false, status: 502, json: async () => ({{status: "error"}})}});
-  if (scenario === "http-error-invalid") return Promise.resolve({{ok: false, status: 500, json: async () => ({{status: "error", error: {{code: 7, message: "<script>secret</script>"}}}})}});
-  if (scenario === "concurrency") return new Promise((resolve, reject) => {{ pendingResolve = resolve; pendingReject = reject; }});
-  const status = scenario;
-  return Promise.resolve({{ok: true, status: 200, json: async () => ({{status, answer: "<b>safe answer</b>", data: {{value: "<script>unsafe</script>"}}}})}});
+  if (url === "/health") {{
+    if (scenario === "health-error") return Promise.reject(new Error("offline"));
+    return Promise.resolve({{
+      ok: scenario !== "health-invalid",
+      status: scenario === "health-invalid" ? 503 : 200,
+      json: async () => scenario === "health-invalid" ? {{status: "down"}} : {{status: "ok"}},
+    }});
+  }}
+  if (scenario === "network-error") return Promise.reject(new Error("private network detail"));
+  if (scenario === "pending") {{
+    return new Promise(resolve => {{ pendingResolve = resolve; }});
+  }}
+  if (scenario === "http-error") return Promise.resolve({{
+    ok: false,
+    status: 503,
+    json: async () => ({{
+      error: {{
+        code: "MCP_UNAVAILABLE",
+        message: "secret http://internal.example",
+        details: {{}},
+      }},
+    }}),
+  }});
+  if (scenario === "http-unknown") return Promise.resolve({{
+    ok: false,
+    status: 500,
+    json: async () => ({{error: {{code: "PRIVATE", message: "trace secret"}}}}),
+  }});
+  if (scenario === "invalid-json") return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => {{ throw new Error("invalid"); }},
+  }});
+  if (scenario === "invalid-payload") return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => ({{status: "success"}}),
+  }});
+  if (scenario === "empty-answer") return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => ({{status: "success", answer: "", data: {{}}}}),
+  }});
+  if (scenario === "unsupported") return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => ({{
+      status: "unsupported",
+      answer: "Question unsupported.",
+      data: {{supported_question_types: [
+        "product_details", "product_availability", "branch_inventory", "shopping_list"
+      ]}},
+    }}),
+  }});
+  if (scenario === "branch-inventory") return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => ({{
+      status: "success",
+      answer: "Inventaire disponible.",
+      data: {{
+        question_type: "branch_inventory",
+        tool_results: {{
+          list_products: {{products: [
+            {{external_product_id: "HB-MON-2102", name: "Compact Monitor"}},
+            {{external_product_id: "HB-OTHER-1", name: "Original English Name"}},
+          ]}},
+          list_branch_stock: {{
+            branch_id: 2,
+            branch_name: "Toulon",
+            stocks: [
+              {{external_product_id: "HB-MON-2102", quantity: 4}},
+              {{external_product_id: "HB-OTHER-1", quantity: 2}},
+            ],
+          }},
+        }},
+      }},
+    }}),
+  }});
+  if (scenario === "shopping") return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => ({{
+      status: "success",
+      answer: "Plan disponible.",
+      data: {{
+        question_type: "shopping_list",
+        tool_results: {{
+          list_products: {{products: []}},
+          find_branches_for_shopping_list: {{
+            complete: true,
+            strategy: "single_branch",
+            visits: [{{
+              branch_id: 2,
+              branch_name: "Toulon",
+              items: [{{
+                external_product_id: "HB-MON-2102",
+                requested_quantity: 2,
+                available_quantity: 8,
+              }}],
+            }}],
+            missing_items: [],
+          }},
+        }},
+      }},
+    }}),
+  }});
+  if (scenario === "unknown-product") return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => ({{
+      status: "success",
+      answer: "English answer preserved.",
+      data: {{
+        question_type: "product_details",
+        tool_results: {{
+          get_product_details: {{
+            external_product_id: "HB-UNKNOWN-1",
+            name: "Original English Name",
+            description: "Unmapped English description.",
+            category: "Unmapped category",
+          }},
+        }},
+      }},
+    }}),
+  }});
+  if (scenario === "partial" || scenario === "unavailable") return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => ({{
+      status: scenario,
+      answer: scenario === "partial" ? "Réponse incomplète." : "Aucune information.",
+      data: {{}},
+    }}),
+  }});
+  return Promise.resolve({{
+    ok: true,
+    status: 200,
+    json: async () => successPayload,
+  }});
 }};
-globalThis.localStorage = new Proxy({{}}, {{ get() {{ throw new Error("localStorage forbidden"); }} }});
-globalThis.sessionStorage = new Proxy({{}}, {{ get() {{ throw new Error("sessionStorage forbidden"); }} }});
-Object.defineProperty(document, "cookie", {{ get() {{ throw new Error("cookie forbidden"); }} }});
 
 vm.runInThisContext(appSource);
-const form = elements.get("#question-form");
-const question = elements.get("#question");
-const button = elements.get("#submit-button");
-const status = elements.get("#request-status");
-question.value = "  Product product-1  ";
-question.dispatch("input");
-
-const first = {{
-  initialDisabled: button.disabled,
-  maxLength: question.maxLength,
-  required: question.required,
-}};
-form.dispatch("submit");
-await Promise.resolve();
-first.callCount = calls.length;
-first.loadingText = status.textContent;
-first.request = calls[0] && {{
-  url: calls[0].url,
-  method: calls[0].options.method,
-  credentials: calls[0].options.credentials,
-  headers: calls[0].options.headers,
-  body: JSON.parse(calls[0].options.body),
-}};
-first.loadingDisabled = button.disabled;
-
-if (scenario === "concurrency") {{
-  form.dispatch("submit");
-  first.concurrentCallCount = calls.length;
-  pendingResolve({{ok: true, status: 200, json: async () => ({{status: "success", answer: "done", data: {{}}}})}});
-}}
 await new Promise(resolve => setTimeout(resolve, 0));
-first.statusText = status.textContent;
-first.statusClass = status.className;
-first.statusState = status.dataset.state || status.dataset.status || "";
-first.statusStyle = {{...status.style}};
-first.answer = elements.get("#answer-output").textContent;
-first.data = elements.get("#data-output").textContent;
-first.finalDisabled = button.disabled;
-console.log(JSON.stringify(first));
+
+const result = {{
+  initialSubmitDisabled: submit.disabled,
+  initialClearDisabled: clear.disabled,
+  initialCounter: counter.textContent,
+  initialEmptyVisible: !empty.hidden,
+  healthState: service.dataset.state,
+  healthText: serviceText.textContent,
+  exampleCount: examples.length,
+}};
+
+if (action === "example") {{
+  examples[1].dispatch("click");
+  result.exampleValue = question.value;
+  result.exampleFocused = question.focused;
+  result.submitEnabled = !submit.disabled;
+}} else {{
+  question.value = suppliedQuestion;
+  question.dispatch("input");
+  result.counterAfterInput = counter.textContent;
+  result.submitEnabled = !submit.disabled;
+  if (action === "keyboard") {{
+    question.dispatch("keydown", {{key: "Enter", ctrlKey: true}});
+  }} else {{
+    form.dispatch("submit");
+  }}
+  await Promise.resolve();
+  result.loadingSubmitDisabled = submit.disabled;
+  result.loadingCount = log.querySelectorAll(".loading-message").length;
+  result.questionCallsWhileLoading = calls.filter(call => call.url === "/questions").length;
+
+  if (scenario === "pending") {{
+    form.dispatch("submit");
+    result.doubleSubmitQuestionCalls = calls.filter(call => call.url === "/questions").length;
+    pendingResolve({{ok: true, status: 200, json: async () => successPayload}});
+  }}
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await Promise.resolve();
+
+  result.questionCalls = calls.filter(call => call.url === "/questions").map(call => ({{
+    url: call.url,
+    method: call.options.method,
+    credentials: call.options.credentials,
+    headers: call.options.headers,
+    body: JSON.parse(call.options.body),
+  }}));
+  result.messageCount = log.querySelectorAll(".message").length;
+  result.loadingFinalCount = log.querySelectorAll(".loading-message").length;
+  result.logText = log.textContent;
+  result.statusText = status.textContent;
+  result.errorText = errorLive.textContent;
+  result.serviceStateFinal = service.dataset.state;
+  result.finalSubmitDisabled = submit.disabled;
+  result.finalClearDisabled = clear.disabled;
+  result.payloadUnchanged = JSON.stringify(successPayload) === originalSnapshot;
+  result.createdTags = created.map(element => element.tagName);
+
+  if (action === "clear") {{
+    clear.dispatch("click");
+    result.clearedMessageCount = log.querySelectorAll(".message").length;
+    result.clearedEmptyVisible = !empty.hidden;
+    result.clearedFocused = question.focused;
+    result.clearedAnnouncement = status.textContent;
+    result.clearedButtonDisabled = clear.disabled;
+  }} else if (action === "retry") {{
+    const retries = log.querySelectorAll(".retry-button");
+    result.retryButtonCount = retries.length;
+    retries[0].dispatch("click");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    result.retryQuestionCalls = calls.filter(
+      call => call.url === "/questions"
+    ).length;
+  }}
+}}
+
+console.log(JSON.stringify(result));
 }})();
 """
 
 
-def test_html_has_anonymous_accessible_contract_and_four_examples():
-    for marker in (
-        'id="question-form"',
-        'id="question"',
-        'id="submit-button"',
-        'id="request-status"',
-        'id="answer-output"',
-        'id="data-output"',
-        'maxlength="1000"',
-        'required',
-        'role="status"',
+def test_initial_interface_is_french_accessible_and_ready():
+    result = run_node(browser_script(action="example"))
+    assert result["initialSubmitDisabled"] is True
+    assert result["initialClearDisabled"] is True
+    assert result["initialCounter"] == "0 / 1 000"
+    assert result["initialEmptyVisible"] is True
+    assert result["healthState"] == "available"
+    assert result["healthText"] == "Service disponible"
+    assert result["exampleCount"] == 4
+
+    required_html = (
+        'lang="fr"',
+        'id="conversation-log"',
+        'role="log"',
         'aria-live="polite"',
-    ):
-        assert marker in HTML
-    lowered = HTML.lower()
-    assert all(
-        term in lowered
-        for term in ("product", "branch", "stock", "shopping")
+        'id="error-live"',
+        'role="alert"',
+        'id="question-form"',
+        '<textarea',
+        'maxlength="1000"',
+        'id="character-count"',
+        'id="clear-button"',
+        'id="service-status"',
     )
-    assert sum(
-        marker in lowered
-        for marker in ("details", "availability", "branch", "shopping")
-    ) == 4
+    assert all(marker in HTML for marker in required_html)
 
 
-def test_examples_use_french_public_questions_and_real_demo_identifiers():
-    folded = HTML.casefold()
-    expected_examples = (
-        "donne-moi les détails du produit hb-mon-2102",
-        "dans quelle succursale reste-t-il du hb-mon-2102",
-        "quels produits sont disponibles dans la succursale 2",
-        "où trouver 2 unités de hb-mon-2102 et 3 unités de hb-key-1001",
+def test_examples_are_exact_french_clickable_questions():
+    expected = (
+        "Donne-moi les détails du produit HB-MON-2102.",
+        "Dans quelle succursale reste-t-il des écrans ?",
+        "Quels produits sont disponibles dans la succursale 2 ?",
+        "Où trouver 2 unités de HB-MON-2102 ?",
     )
-    assert all(example in folded for example in expected_examples)
-    assert folded.count("hb-mon-2102") >= 3
-    assert "hb-key-1001" in folded
-    assert all(identifier not in folded for identifier in ("product-1", "widget", "gadget"))
+    assert all(f'data-question="{question}"' in HTML for question in expected)
+    assert HTML.count('class="example-button"') == 4
+
+    result = run_node(browser_script(action="example"))
+    assert result["exampleValue"] == expected[1]
+    assert result["exampleFocused"] is True
+    assert result["submitEnabled"] is True
 
 
-def test_client_posts_trimmed_question_with_exact_anonymous_fetch_options():
+def test_question_is_trimmed_and_posted_with_exact_public_contract():
     result = run_node(browser_script())
-    assert result["request"] == {
+    assert result["questionCalls"] == [{
         "url": "/questions",
         "method": "POST",
         "credentials": "omit",
         "headers": {"Content-Type": "application/json"},
-        "body": {"question": "Product product-1"},
-    }
-    assert result["callCount"] == 1
-    assert result["finalDisabled"] is False
+        "body": {
+            "question": "Donne-moi les détails du produit HB-MON-2102."
+        },
+    }]
+    assert result["messageCount"] == 2
+    assert result["loadingFinalCount"] == 0
+    assert result["finalClearDisabled"] is False
 
 
-def test_empty_question_is_not_sent_and_loading_disables_submission():
-    script = browser_script().replace('question.value = "  Product product-1  ";', 'question.value = "   ";')
-    result = run_node(script)
-    assert result["callCount"] == 0
-    assert result["initialDisabled"] is True
+def test_empty_question_is_blocked_and_character_limit_is_visible():
+    result = run_node(browser_script(question="   "))
+    assert result["submitEnabled"] is False
+    assert result["questionCalls"] == []
+    assert result["messageCount"] == 0
+    assert result["counterAfterInput"] == "3 / 1 000"
 
 
-def test_concurrent_submission_creates_only_one_fetch_and_disables_button():
-    result = run_node(browser_script("concurrency"))
-    assert result["callCount"] == 1
-    assert result["concurrentCallCount"] == 1
-    assert result["loadingDisabled"] is True
-    assert result["finalDisabled"] is False
+def test_ctrl_enter_submits_the_question():
+    result = run_node(browser_script(action="keyboard"))
+    assert len(result["questionCalls"]) == 1
 
 
-def test_each_public_status_is_announced_and_rendered():
-    observed = {}
-    visual_rules = {}
-    for status in ("success", "partial", "unavailable", "unsupported"):
-        result = run_node(browser_script(status))
-        observed[status] = result["statusClass"] + "|" + result["statusState"]
-        assert status in result["statusText"].lower()
-        assert result["answer"] == "<b>safe answer</b>"
-        assert "<script>unsafe</script>" in result["data"]
-        declarations = []
-        for class_name in result["statusClass"].split():
-            for selector, block in re.findall(r"([^{}]+)\{([^{}]*)\}", STYLES):
-                if not re.search(
-                    rf"\.{re.escape(class_name)}(?:[^\w-]|$)", selector
-                ):
-                    continue
-                block = block.lower()
-                declarations.extend(
-                    line.strip()
-                    for line in block.split(";")
-                    if re.match(
-                        r"(?:color|background|border|outline|font-weight|text-decoration)\s*:",
-                        line.strip(),
-                    )
-                )
-        declarations.extend(
-            f"{key}:{value}"
-            for key, value in result["statusStyle"].items()
-            if key in {"color", "background", "border", "outline", "fontWeight", "textDecoration"}
-        )
-        assert declarations, result["statusClass"]
-        visual_rules[status] = tuple(sorted(set(declarations)))
-    assert len(set(observed.values())) == 4
-    assert len(set(visual_rules.values())) == 4
+def test_loading_and_double_submission_prevention():
+    result = run_node(browser_script(scenario="pending"))
+    assert result["loadingSubmitDisabled"] is True
+    assert result["loadingCount"] == 1
+    assert result["questionCallsWhileLoading"] == 1
+    assert result["doubleSubmitQuestionCalls"] == 1
+    assert result["loadingFinalCount"] == 0
 
 
-def test_loading_state_is_textual_and_button_is_disabled_before_completion():
-    result = run_node(browser_script("concurrency"))
-    assert result["loadingText"]
-    assert result["loadingDisabled"] is True
+def test_text_and_structured_product_stock_are_rendered_safely():
+    result = run_node(browser_script())
+    text = result["logText"]
+    for expected in (
+        "<b>Réponse externe sûre</b>",
+        "Écran compact 24 pouces",
+        "Un écran compact pour un usage professionnel.",
+        "Écrans",
+        "HB-MON-2102",
+        "SUP-LAB-002",
+        "169.99",
+        "USD",
+        "Toulon",
+        "8",
+    ):
+        assert expected in text
+    assert result["payloadUnchanged"] is True
+    assert "TABLE" in result["createdTags"]
 
 
-def test_structured_http_error_displays_only_its_safe_message():
-    result = run_node(browser_script("http-error"))
-    assert result["statusText"] == "Service unavailable"
-    assert "UPSTREAM" not in result["statusText"]
+def test_empty_answer_and_absent_structured_data_have_explicit_fallbacks():
+    result = run_node(browser_script(scenario="empty-answer"))
+    assert "Le service n’a retourné aucun texte" in result["logText"]
+    assert "Aucun détail structuré supplémentaire" in result["logText"]
 
 
-def test_success_payload_requires_a_string_answer_and_object_data():
-    for scenario in ("invalid-payload", "invalid-answer", "invalid-data"):
-        result = run_node(browser_script(scenario))
-        assert result["statusText"]
-        assert "Service unavailable" not in result["statusText"]
+def test_unsupported_response_translates_supported_types():
+    result = run_node(browser_script(scenario="unsupported"))
+    for label in (
+        "Détails d’un produit",
+        "Disponibilité d’un produit",
+        "Inventaire d’une succursale",
+        "Liste d’achats",
+    ):
+        assert label in result["logText"]
 
 
-def test_http_fetch_json_and_payload_failures_are_technical_visible_errors():
-    for scenario in ("http-error", "fetch-error", "invalid-json", "invalid-payload"):
-        result = run_node(browser_script(scenario))
-        assert result["statusText"]
-        assert result["finalDisabled"] is False
-        assert "secret" not in result["statusText"].lower()
+def test_branch_inventory_and_unknown_english_values_are_preserved():
+    result = run_node(browser_script(scenario="branch-inventory"))
+    for expected in (
+        "Inventaire — Toulon",
+        "Écran compact",
+        "HB-MON-2102",
+        "Original English Name",
+        "HB-OTHER-1",
+        "4",
+        "2",
+    ):
+        assert expected in result["logText"]
 
 
-def test_unknown_success_status_is_rejected_as_a_technical_error():
-    result = run_node(browser_script("future-status"))
-    assert result["statusText"]
-    assert "future-status" not in result["statusText"]
-    assert result["answer"] == ""
+def test_shopping_plan_uses_exact_identifiers_and_quantities():
+    result = run_node(browser_script(scenario="shopping"))
+    for expected in (
+        "Plan d’achat",
+        "Une seule succursale",
+        "Toulon — 2",
+        "HB-MON-2102",
+        "2",
+        "8",
+    ):
+        assert expected in result["logText"]
 
 
-@pytest.mark.parametrize("scenario", ["http-error-unstructured", "http-error-invalid"])
-def test_invalid_http_error_payload_is_rejected_without_remote_details(scenario):
-    result = run_node(browser_script(scenario))
-    assert result["statusText"]
-    assert "secret" not in result["statusText"].lower()
-    assert "script" not in result["statusText"].lower()
+def test_unknown_translation_falls_back_to_original_english_values():
+    result = run_node(browser_script(scenario="unknown-product"))
+    for expected in (
+        "English answer preserved.",
+        "Original English Name",
+        "Unmapped English description.",
+        "Unmapped category",
+        "HB-UNKNOWN-1",
+    ):
+        assert expected in result["logText"]
 
 
-def test_client_source_forbids_persistence_unsafe_html_and_authorization():
-    lowered = APP.lower()
+@pytest.mark.parametrize(
+    ("scenario", "label"),
+    [
+        ("partial", "Réponse partielle"),
+        ("unavailable", "Informations indisponibles"),
+    ],
+)
+def test_partial_and_unavailable_business_states_are_distinct(scenario, label):
+    result = run_node(browser_script(scenario=scenario))
+    assert label in result["logText"]
+    assert result["errorText"] == ""
+    assert result["serviceStateFinal"] == "available"
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected"),
+    [
+        (
+            "http-error",
+            "Les informations sur les produits ou les stocks sont indisponibles.",
+        ),
+        ("http-unknown", "Le service n’a pas pu traiter la question."),
+        ("invalid-json", "La réponse reçue ne peut pas être affichée."),
+        ("invalid-payload", "La réponse reçue ne peut pas être affichée."),
+        (
+            "network-error",
+            "Impossible de joindre le service. Vérifiez votre connexion locale puis réessayez.",
+        ),
+    ],
+)
+def test_http_network_and_invalid_responses_are_safe_and_restore_ui(
+    scenario, expected
+):
+    result = run_node(browser_script(scenario=scenario))
+    assert expected in result["logText"]
+    assert expected in result["errorText"]
+    assert result["finalSubmitDisabled"] is True
+    assert result["finalClearDisabled"] is False
+    assert "secret" not in result["logText"].casefold()
+    assert "internal.example" not in result["logText"]
+
+
+@pytest.mark.parametrize("scenario", ["health-error", "health-invalid"])
+def test_health_failure_is_visible_without_blocking_questions(scenario):
+    result = run_node(browser_script(scenario=scenario, action="example"))
+    assert result["healthState"] == "unavailable"
+    assert result["healthText"] == "Service indisponible"
+    assert result["submitEnabled"] is True
+
+
+def test_clear_conversation_restores_initial_state_and_focus():
+    result = run_node(browser_script(action="clear"))
+    assert result["clearedMessageCount"] == 0
+    assert result["clearedEmptyVisible"] is True
+    assert result["clearedFocused"] is True
+    assert result["clearedAnnouncement"] == "Conversation effacée."
+    assert result["clearedButtonDisabled"] is True
+
+
+def test_retry_replays_only_the_selected_independent_question():
+    result = run_node(browser_script(action="retry"))
+    assert result["retryButtonCount"] == 1
+    assert result["retryQuestionCalls"] == 2
+
+
+def test_source_uses_safe_native_dom_without_persistence_or_external_assets():
+    lowered = APP.casefold()
     for forbidden in (
         "innerhtml",
+        "outerhtml",
+        "insertadjacenthtml",
+        "eval(",
         "localstorage",
         "sessionstorage",
         "document.cookie",
@@ -322,3 +699,26 @@ def test_client_source_forbids_persistence_unsafe_html_and_authorization():
         "authorization",
     ):
         assert forbidden not in lowered
+    assert "textContent" in APP
+    assert "createElement" in APP
+    assert 'fetch("/questions"' in APP
+    assert 'fetch("/health"' in APP
+
+    references = re.findall(
+        r"""(?:src|href)=["']([^"']+)["']""",
+        HTML,
+        flags=re.I,
+    )
+    assert references == ["styles.css", "app.js", "/"]
+    assert not re.search(r"""https?://|//[A-Za-z0-9]""", HTML)
+    assert "@import" not in STYLES
+
+
+def test_accessibility_and_responsive_motion_contracts_are_present():
+    assert '<label for="question">' in HTML
+    assert 'aria-describedby="composer-help character-count"' in HTML
+    assert 'aria-label="Exemples et aide"' in HTML
+    assert ":focus-visible" in STYLES
+    assert "@media (max-width: 960px)" in STYLES
+    assert "@media (max-width: 680px)" in STYLES
+    assert "@media (prefers-reduced-motion: reduce)" in STYLES
