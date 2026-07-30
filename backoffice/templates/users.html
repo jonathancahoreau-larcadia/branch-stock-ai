@@ -5,27 +5,24 @@
   <h1>Utilisateurs</h1>
   <p class="page-header__subtitle">Gestion des utilisateurs (administrateur uniquement)</p>
   <div class="page-header__actions">
-    <button type="button" class="btn btn--primary" id="btn-create-user" onclick="document.getElementById('create-user-modal').classList.add('modal--open')">Créer un utilisateur</button>
+    <button type="button" class="btn btn--primary" id="btn-create-user">Créer un utilisateur</button>
   </div>
 </div>
 
 <div class="filters">
-  <form method="GET" action="{{ url_for('backoffice.users_list') }}" class="form form--inline" id="user-filters">
+  <form method="GET" action="/users" class="form form--inline" id="user-filters">
     <div class="form__group">
       <label for="status">Statut</label>
       <select id="status" name="status">
-        <option value="active" {% if filters.status == 'active' %}selected{% endif %}>Actifs</option>
-        <option value="deleted" {% if filters.status == 'deleted' %}selected{% endif %}>Supprimés</option>
-        <option value="all" {% if filters.status == 'all' %}selected{% endif %}>Tous</option>
+        <option value="active">Actifs</option>
+        <option value="deleted">Supprimés</option>
+        <option value="all">Tous</option>
       </select>
     </div>
     <div class="form__group">
       <label for="branch_id">Succursale</label>
       <select id="branch_id" name="branch_id">
         <option value="">Toutes</option>
-        {% for branch in branches %}
-          <option value="{{ branch.id }}" {% if filters.branch_id == branch.id %}selected{% endif %}>{{ branch.name }}</option>
-        {% endfor %}
       </select>
     </div>
     <div class="form__actions">
@@ -46,41 +43,20 @@
         <th>Actions</th>
       </tr>
     </thead>
-    <tbody>
-      {% if users %}
-        {% for user in users %}
-        <tr>
-          <td>{{ user.id }}</td>
-          <td>{{ user.username }}</td>
-          <td><span class="badge badge--{{ 'admin' if user.role == 'admin' else 'info' }}">{{ user.role }}</span></td>
-          <td>{{ user.branch.name if user.branch else '—' }}</td>
-          <td>{% if user.is_active %}<span class="badge badge--success">Oui</span>{% else %}<span class="badge badge--danger">Non</span>{% endif %}</td>
-          <td class="table__actions">
-            <button type="button" class="btn btn--sm" data-action="edit" data-user-id="{{ user.id }}" data-username="{{ user.username }}" data-branch-id="{{ user.branch.id if user.branch else '' }}">Modifier</button>
-            <button type="button" class="btn btn--sm" data-action="password" data-user-id="{{ user.id }}">Changer mot de passe</button>
-            {% if user.is_active and user.role != 'admin' %}
-            <form method="POST" action="{{ url_for('backoffice.users_delete', user_id=user.id) }}" class="form--inline" onsubmit="return confirm('Supprimer cet utilisateur ?')">
-              <button type="submit" class="btn btn--sm btn--danger">Supprimer</button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      {% else %}
-        <tr>
-          <td colspan="6" class="table__empty">Aucun utilisateur trouvé.</td>
-        </tr>
-      {% endif %}
+    <tbody id="users-table-body">
+      <tr>
+        <td colspan="6" class="table__empty">Chargement…</td>
+      </tr>
     </tbody>
   </table>
 </div>
 
 <!-- Modal: Créer un utilisateur -->
 <div id="create-user-modal" class="modal">
-  <div class="modal__backdrop" onclick="this.parentElement.classList.remove('modal--open')"></div>
+  <div class="modal__backdrop"></div>
   <div class="modal__content">
     <h2>Créer un utilisateur</h2>
-    <form method="POST" action="{{ url_for('backoffice.users_create') }}" class="form" novalidate>
+    <form id="create-user-form" class="form" novalidate>
       <div class="form__group">
         <label for="create-username">Nom d'utilisateur</label>
         <input type="text" id="create-username" name="username" required maxlength="80" autocomplete="off">
@@ -93,14 +69,11 @@
         <label for="create-branch">Succursale</label>
         <select id="create-branch" name="branch_id" required>
           <option value="">— Sélectionner —</option>
-          {% for branch in branches %}
-            <option value="{{ branch.id }}">{{ branch.name }}</option>
-          {% endfor %}
         </select>
       </div>
       <div class="form__actions">
         <button type="submit" class="btn btn--primary">Créer</button>
-        <button type="button" class="btn btn--outline" onclick="document.getElementById('create-user-modal').classList.remove('modal--open')">Annuler</button>
+        <button type="button" class="btn btn--outline" onclick="closeModal('create-user-modal')">Annuler</button>
       </div>
     </form>
   </div>
@@ -108,10 +81,10 @@
 
 <!-- Modal: Modifier un utilisateur -->
 <div id="edit-user-modal" class="modal">
-  <div class="modal__backdrop" onclick="this.parentElement.classList.remove('modal--open')"></div>
+  <div class="modal__backdrop"></div>
   <div class="modal__content">
     <h2>Modifier l'utilisateur</h2>
-    <form method="POST" action="" class="form" id="edit-user-form" novalidate>
+    <form id="edit-user-form" class="form" novalidate>
       <div class="form__group">
         <label for="edit-username">Nom d'utilisateur</label>
         <input type="text" id="edit-username" name="username" maxlength="80" autocomplete="off">
@@ -120,14 +93,11 @@
         <label for="edit-branch">Succursale</label>
         <select id="edit-branch" name="branch_id">
           <option value="">— Aucune —</option>
-          {% for branch in branches %}
-            <option value="{{ branch.id }}">{{ branch.name }}</option>
-          {% endfor %}
         </select>
       </div>
       <div class="form__actions">
         <button type="submit" class="btn btn--primary">Enregistrer</button>
-        <button type="button" class="btn btn--outline" onclick="document.getElementById('edit-user-modal').classList.remove('modal--open')">Annuler</button>
+        <button type="button" class="btn btn--outline" onclick="closeModal('edit-user-modal')">Annuler</button>
       </div>
     </form>
   </div>
@@ -135,19 +105,76 @@
 
 <!-- Modal: Changer le mot de passe -->
 <div id="password-modal" class="modal">
-  <div class="modal__backdrop" onclick="this.parentElement.classList.remove('modal--open')"></div>
+  <div class="modal__backdrop"></div>
   <div class="modal__content">
     <h2>Changer le mot de passe</h2>
-    <form method="POST" action="" class="form" id="password-form" novalidate>
+    <form id="password-form" class="form" novalidate>
       <div class="form__group">
         <label for="new-password">Nouveau mot de passe</label>
         <input type="password" id="new-password" name="new_password" required maxlength="72" autocomplete="new-password">
       </div>
       <div class="form__actions">
         <button type="submit" class="btn btn--primary">Changer</button>
-        <button type="button" class="btn btn--outline" onclick="document.getElementById('password-modal').classList.remove('modal--open')">Annuler</button>
+        <button type="button" class="btn btn--outline" onclick="closeModal('password-modal')">Annuler</button>
       </div>
     </form>
   </div>
 </div>
+
+<script>
+// Override initUsersPage to handle filter form and load branches for modals
+const _origInitUsers = initUsersPage;
+initUsersPage = async function() {
+  await _origInitUsers();
+
+  // Load branches for filter and modal selects
+  try {
+    const branches = await apiFetch("/api/v1/branches");
+    populateBranchSelects(branches);
+  } catch {
+    // branches may not load if not admin — ignore
+  }
+
+  // Restore filter values from URL
+  const params = new URLSearchParams(window.location.search);
+  document.getElementById("status").value = params.get("status") || "active";
+  document.getElementById("branch_id").value = params.get("branch_id") || "";
+
+  // Handle filter form submission
+  document.getElementById("user-filters").addEventListener("submit", function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const params = new URLSearchParams();
+    for (const [key, value] of formData.entries()) {
+      if (value) params.set(key, value);
+    }
+    window.location.href = "/users?" + params.toString();
+  });
+
+  // Open create modal
+  document.getElementById("btn-create-user").addEventListener("click", function() {
+    openModal("create-user-modal");
+  });
+};
+
+function populateBranchSelects(branches) {
+  if (!branches) return;
+  const selects = ["branch_id", "create-branch", "edit-branch"];
+  selects.forEach(function(id) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    // Keep the first option (empty/default)
+    const firstOption = select.options[0];
+    select.innerHTML = "";
+    if (firstOption) select.appendChild(firstOption);
+    branches.forEach(function(b) {
+      const option = document.createElement("option");
+      option.value = b.id;
+      option.textContent = b.name;
+      select.appendChild(option);
+    });
+  });
+}
+</script>
 {% endblock %}
+</write_to_file>

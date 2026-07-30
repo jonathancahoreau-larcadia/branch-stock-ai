@@ -5,7 +5,7 @@
   <div class="login-card">
     <h1>Backoffice</h1>
     <p class="login-card__subtitle">Branch Stock AI</p>
-    <form method="POST" action="{{ url_for('backoffice.login') }}" class="form" novalidate>
+    <form id="login-form" class="form" novalidate>
       <div class="form__group">
         <label for="username">Nom d'utilisateur</label>
         <input type="text" id="username" name="username" required autocomplete="username" autofocus>
@@ -14,8 +14,48 @@
         <label for="password">Mot de passe</label>
         <input type="password" id="password" name="password" required autocomplete="current-password">
       </div>
-      <button type="submit" class="btn btn--primary btn--full">Se connecter</button>
+      <div id="login-error" class="alert alert--error" hidden></div>
+      <button type="submit" class="btn btn--primary btn--full" id="login-submit">Se connecter</button>
     </form>
   </div>
 </div>
+
+<script>
+function initLoginPage() {
+  const form = document.getElementById("login-form");
+  const errorEl = document.getElementById("login-error");
+  const submitBtn = document.getElementById("login-submit");
+
+  if (!form) return;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorEl.hidden = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Connexion…";
+
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value;
+
+    if (!username || !password) {
+      errorEl.textContent = "Nom d'utilisateur et mot de passe requis.";
+      errorEl.hidden = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Se connecter";
+      return;
+    }
+
+    try {
+      await login(username, password);
+      window.location.href = "/";
+    } catch (err) {
+      errorEl.textContent = err.message || "Identifiants invalides.";
+      errorEl.hidden = false;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Se connecter";
+    }
+  });
+}
+</script>
 {% endblock %}
+</write_to_file>

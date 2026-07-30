@@ -14,4 +14,6 @@ ENV PYTHONPATH=/app
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "flask db upgrade && flask seed && flask run --host=0.0.0.0 --port=5000"]
+# Use Gunicorn for production-like serving
+CMD ["sh", "-c", "flask db upgrade && flask seed && gunicorn --bind 0.0.0.0:5000 --workers 4 backoffice.app:create_app()"]
+</write_to_file>

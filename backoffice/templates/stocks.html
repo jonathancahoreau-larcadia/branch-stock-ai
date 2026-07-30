@@ -3,16 +3,14 @@
 {% block content %}
 <div class="page-header">
   <h1>Stocks</h1>
-  {% if branch %}
-  <p class="page-header__subtitle">Succursale : <strong>{{ branch.name }}</strong></p>
-  {% endif %}
+  <p class="page-header__subtitle">Succursale : <strong id="stock-branch-name"></strong></p>
 </div>
 
 <div class="filters">
-  <form method="GET" action="{{ url_for('backoffice.stocks_list') }}" class="form form--inline" id="stock-filters">
+  <form method="GET" action="/stocks" class="form form--inline" id="stock-filters">
     <div class="form__group form__group--checkbox">
       <label>
-        <input type="checkbox" name="available_only" value="false" {% if filters.available_only == false %}checked{% endif %}>
+        <input type="checkbox" name="available_only" value="false">
         Afficher tous les stocks (y compris quantité nulle)
       </label>
     </div>
@@ -22,109 +20,55 @@
   </form>
 </div>
 
-{% if branch %}
-<div class="card card--actions">
+<div class="card card--actions" id="stock-actions-card">
     <h3>Gestion du stock</h3>
 
     <div class="stock-actions">
-
         <!-- Ajout -->
-        <form method="POST"
-              action="{{ url_for('backoffice.stocks_add') }}"
-              class="form form--inline">
-
+        <form id="stock-add-form" class="form form--inline">
             <div class="form__group">
                 <label>Produit (SKU)</label>
-                <input
-                    type="text"
-                    name="external_product_id"
-                    placeholder="ex: HB-MON-2102"
-                    required>
+                <input type="text" name="external_product_id" placeholder="ex: HB-MON-2102" required>
             </div>
-
             <div class="form__group">
                 <label>Quantité</label>
-                <input
-                    type="number"
-                    name="quantity"
-                    min="1"
-                    value="1"
-                    required>
+                <input type="number" name="quantity" min="1" value="1" required>
             </div>
-
-            <button class="btn btn--success">
-                Ajouter
-            </button>
-
+            <button class="btn btn--success">Ajouter</button>
         </form>
 
         <!-- Retrait -->
-        <form method="POST"
-              action="{{ url_for('backoffice.stocks_remove') }}"
-              class="form form--inline">
-
+        <form id="stock-remove-form" class="form form--inline">
             <div class="form__group">
                 <label>Produit (SKU)</label>
-                <input
-                    type="text"
-                    name="external_product_id"
-                    placeholder="ex: HB-MON-2102"
-                    required>
+                <input type="text" name="external_product_id" placeholder="ex: HB-MON-2102" required>
             </div>
-
             <div class="form__group">
                 <label>Quantité</label>
-                <input
-                    type="number"
-                    name="quantity"
-                    min="1"
-                    value="1"
-                    required>
+                <input type="number" name="quantity" min="1" value="1" required>
             </div>
-
-            <button class="btn btn--danger">
-                Retirer
-            </button>
-
+            <button class="btn btn--danger">Retirer</button>
         </form>
-
     </div>
 </div>
 
 <!-- Barre de recherche -->
 <div class="card">
-  <form method="GET"
-        action="{{ url_for('backoffice.stocks_list') }}"
-        class="form form--inline">
-
+  <form method="GET" action="/stocks" class="form form--inline" id="stock-search-form">
     <div class="form__group">
       <label>Rechercher un produit</label>
-      <input
-          type="text"
-          name="search"
-          value="{{ search_query or '' }}"
-          placeholder="Nom du produit ou SKU"
-          style="min-width: 280px;">
+      <input type="text" name="search" id="stock-search" placeholder="Nom du produit ou SKU" style="min-width: 280px;">
     </div>
-
     <div class="form__group form__group--checkbox">
       <label>
-        <input type="checkbox" name="available_only" value="false" {% if filters.available_only == false %}checked{% endif %}>
+        <input type="checkbox" name="available_only" value="false">
         Tout afficher
       </label>
     </div>
-
-    <button type="submit" class="btn btn--primary">
-      Rechercher
-    </button>
-
-    {% if search_query %}
-    <a href="{{ url_for('backoffice.stocks_list') }}" class="btn btn--outline">Effacer</a>
-    {% endif %}
-
+    <button type="submit" class="btn btn--primary">Rechercher</button>
+    <a href="/stocks" class="btn btn--outline" id="stock-clear-search" hidden>Effacer</a>
   </form>
 </div>
-{% endif %}
 
 <div class="table-container">
   <table class="table" data-testid="stocks-table">
@@ -135,27 +79,54 @@
         <th>Quantité</th>
       </tr>
     </thead>
-    <tbody>
-      {% if stocks %}
-        {% for stock in stocks %}
-        <tr>
-          <td><code>{{ stock.external_product_id }}</code></td>
-          <td>{{ stock.product.name }}</td>
-          <td class="table__numeric">
-            {% if stock.quantity > 0 %}
-              <span class="badge badge--success">{{ stock.quantity }}</span>
-            {% else %}
-              <span class="badge badge--danger">0</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      {% else %}
-        <tr>
-          <td colspan="3" class="table__empty">Aucun stock trouvé pour cette succursale.</td>
-        </tr>
-      {% endif %}
+    <tbody id="stocks-table-body">
+      <tr>
+        <td colspan="3" class="table__empty">Chargement…</td>
+      </tr>
     </tbody>
   </table>
 </div>
+
+<script>
+// Override initStocksPage to handle filter/search forms
+const _origInitStocks = initStocksPage;
+initStocksPage = async function() {
+  await _origInitStocks();
+
+  // Show branch name from user info
+  const user = getCurrentUser();
+  const branchNameEl = document.getElementById("stock-branch-name");
+  if (branchNameEl && user && user.branch) {
+    branchNameEl.textContent = user.branch.name;
+  }
+
+  // Restore filter values from URL
+  const params = new URLSearchParams(window.location.search);
+  document.getElementById("stock-search").value = params.get("search") || "";
+  document.getElementById("stock-clear-search").hidden = !params.get("search");
+
+  // Handle filter form submission
+  document.getElementById("stock-filters").addEventListener("submit", function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const params = new URLSearchParams();
+    for (const [key, value] of formData.entries()) {
+      if (value) params.set(key, value);
+    }
+    window.location.href = "/stocks?" + params.toString();
+  });
+
+  // Handle search form submission
+  document.getElementById("stock-search-form").addEventListener("submit", function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const params = new URLSearchParams();
+    for (const [key, value] of formData.entries()) {
+      if (value) params.set(key, value);
+    }
+    window.location.href = "/stocks?" + params.toString();
+  });
+};
+</script>
 {% endblock %}
+</write_to_file>

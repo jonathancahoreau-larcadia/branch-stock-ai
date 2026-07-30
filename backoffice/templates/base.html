@@ -8,40 +8,33 @@
 </head>
 <body>
   <div class="app">
-    {% if session.get('user') %}
-    <nav class="app__sidebar">
-      <div class="sidebar__header">
-        <h2>Branch Stock AI</h2>
-        <p class="sidebar__role">{{ session.user.role }}</p>
-      </div>
-      <ul class="sidebar__nav">
-        <li><a href="{{ url_for('backoffice.index') }}" class="nav-link">Dashboard</a></li>
-        <li><a href="{{ url_for('backoffice.products_list') }}" class="nav-link">Produits</a></li>
-        {% if session.user.role != 'admin' %}
-        <li><a href="{{ url_for('backoffice.stocks_list') }}" class="nav-link">Stocks</a></li>
-        {% endif %}
-        <li><a href="{{ url_for('backoffice.branches_list') }}" class="nav-link">Succursales</a></li>
-        {% if session.user.role == 'admin' %}
-        <li><a href="{{ url_for('backoffice.users_list') }}" class="nav-link">Utilisateurs</a></li>
-        {% endif %}
-      </ul>
-      <div class="sidebar__footer">
-        <span class="sidebar__user">{{ session.user.username }}</span>
-        <a href="{{ url_for('backoffice.logout') }}" class="btn btn--sm btn--outline">Déconnexion</a>
-      </div>
-    </nav>
-    {% endif %}
+    <!-- Sidebar injected by JavaScript -->
+    <div id="main-navigation"></div>
+
     <main class="app__main">
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          {% for category, message in messages %}
-            <div class="alert alert--{{ category }}">{{ message }}</div>
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
+      <!-- Flash messages container (injected by JS) -->
+      <div id="flash-messages"></div>
+
+      <!-- Page-level error display -->
+      <div id="page-error" class="alert alert--error" hidden></div>
+
       {% block content %}{% endblock %}
     </main>
   </div>
+
+  <!-- JavaScript modules loaded in dependency order -->
+  <script src="{{ url_for('static', filename='js/config.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/modals.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/navigation.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/products.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/stocks.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/branches.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/users.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
+</write_to_file>

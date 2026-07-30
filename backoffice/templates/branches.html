@@ -14,20 +14,12 @@
         <th>Nom</th>
       </tr>
     </thead>
-    <tbody>
-      {% if branches %}
-        {% for branch in branches %}
-        <tr>
-          <td>{{ branch.id }}</td>
-          <td>{{ branch.name }}</td>
-        </tr>
-        {% endfor %}
-      {% else %}
-        <tr>
-          <td colspan="2" class="table__empty">Aucune succursale trouvée.</td>
-        </tr>
-      {% endif %}
+    <tbody id="branches-table-body">
+      <tr>
+        <td colspan="2" class="table__empty">Chargement…</td>
+      </tr>
     </tbody>
   </table>
 </div>
 {% endblock %}
+</write_to_file>
