@@ -11,13 +11,11 @@ class TestHtmlPages:
         assert response.status_code == 200
         assert b"Connexion" in response.data
 
-    def test_login_page_redirects_when_authenticated(self, client, sqlite_database_app):
-        """Simulate an already-authenticated session."""
-        with client.session_transaction() as session:
-            session["access_token"] = "test-token"
-            session["user"] = {"username": "admin", "role": "admin"}
-        response = client.get("/login", follow_redirects=False)
-        assert response.status_code == 302
+    def test_login_page_always_shows_form(self, client):
+        """The login page always shows the form (auth is client-side)."""
+        response = client.get("/login")
+        assert response.status_code == 200
+        assert b"login-form" in response.data or b"Se connecter" in response.data
 
     def test_index_page(self, client):
         response = client.get("/")

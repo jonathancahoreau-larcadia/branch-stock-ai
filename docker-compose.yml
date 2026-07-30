@@ -50,5 +50,3 @@ services:
 
 volumes:
   pgdata:
-</code>
-</write_to_file>

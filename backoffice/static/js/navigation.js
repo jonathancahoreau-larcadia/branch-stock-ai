@@ -25,30 +25,29 @@ function initNavigation() {
     (link) => link.roles === null || link.roles.includes(user.role)
   );
 
+  sidebar.className = "app__sidebar";
   sidebar.innerHTML = `
-    <nav class="app__sidebar">
-      <div class="sidebar__header">
-        <h2>Branch Stock AI</h2>
-        <p class="sidebar__role">${escapeHtml(user.role)}</p>
-      </div>
-      <ul class="sidebar__nav">
-        ${visibleLinks
-          .map(
-            (link) => `
-          <li>
-            <a href="${link.href}"
-               class="nav-link${currentPath === link.href ? " active" : ""}">
-              ${escapeHtml(link.label)}
-            </a>
-          </li>`
-          )
-          .join("")}
-      </ul>
-      <div class="sidebar__footer">
-        <span class="sidebar__user">${escapeHtml(user.username)}</span>
-        <button id="logout-btn" class="btn btn--sm btn--outline">Déconnexion</button>
-      </div>
-    </nav>
+    <div class="sidebar__header">
+      <h2>Branch Stock AI</h2>
+      <p class="sidebar__role">${escapeHtml(user.role)}</p>
+    </div>
+    <ul class="sidebar__nav">
+      ${visibleLinks
+        .map(
+          (link) => `
+        <li>
+          <a href="${link.href}"
+             class="nav-link${currentPath === link.href ? " active" : ""}">
+            ${escapeHtml(link.label)}
+          </a>
+        </li>`
+        )
+        .join("")}
+    </ul>
+    <div class="sidebar__footer">
+      <span class="sidebar__user">${escapeHtml(user.username)}</span>
+      <button id="logout-btn" class="btn btn--sm btn--outline">Déconnexion</button>
+    </div>
   `;
 
   document.getElementById("logout-btn")?.addEventListener("click", logout);

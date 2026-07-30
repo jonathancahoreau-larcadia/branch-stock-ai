@@ -14,8 +14,6 @@ backoffice_bp = Blueprint("backoffice", __name__, url_prefix="")
 @backoffice_bp.get("/login")
 def login_page():
     """Display the login form."""
-    if "access_token" in session:
-        return redirect(url_for("backoffice.index"))
     return render_template("login.html")
 
 

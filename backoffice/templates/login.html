@@ -19,43 +19,5 @@
     </form>
   </div>
 </div>
-
-<script>
-function initLoginPage() {
-  const form = document.getElementById("login-form");
-  const errorEl = document.getElementById("login-error");
-  const submitBtn = document.getElementById("login-submit");
-
-  if (!form) return;
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    errorEl.hidden = true;
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Connexion…";
-
-    const username = document.getElementById("username").value.trim();
-    const password = document.getElementById("password").value;
-
-    if (!username || !password) {
-      errorEl.textContent = "Nom d'utilisateur et mot de passe requis.";
-      errorEl.hidden = false;
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Se connecter";
-      return;
-    }
-
-    try {
-      await login(username, password);
-      window.location.href = "/";
-    } catch (err) {
-      errorEl.textContent = err.message || "Identifiants invalides.";
-      errorEl.hidden = false;
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Se connecter";
-    }
-  });
-}
-</script>
 {% endblock %}
 </write_to_file>
