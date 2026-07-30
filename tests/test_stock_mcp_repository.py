@@ -289,7 +289,10 @@ def test_runtime_manifest_contains_only_the_approved_dependency():
     manifest = Path(__file__).parents[1] / "stock_mcp_server" / "requirements.txt"
 
     assert manifest.exists()
-    assert manifest.read_text(encoding="utf-8") == "psycopg[binary]>=3.2,<4.0\n"
+    assert manifest.read_text(encoding="utf-8") == (
+        "mcp>=1.27,<2\n"
+        "psycopg[binary]>=3.2,<4.0\n"
+    )
 
 
 def test_branch_stock_returns_only_positive_rows_in_contract_order(monkeypatch):
