@@ -31,7 +31,8 @@ select {
   font: inherit;
 }
 
-button {
+button,
+input[type="submit"] {
   cursor: pointer;
   border: 1px solid var(--accent);
   border-radius: 0.65rem;
@@ -41,10 +42,24 @@ button {
   font-weight: 700;
 }
 
-button.secondary {
+button.secondary,
+input.secondary[type="submit"] {
   background: transparent;
   color: CanvasText;
   border-color: var(--border);
+}
+
+button.danger,
+input.danger[type="submit"] {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: Canvas;
+}
+
+button:disabled,
+input[type="submit"]:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 button:focus-visible,
@@ -122,7 +137,8 @@ select {
 }
 
 h1,
-h2 {
+h2,
+h3 {
   margin: 0.2rem 0 0;
 }
 
@@ -147,6 +163,10 @@ h2 {
 .content-region {
   overflow-x: auto;
   margin-top: 1rem;
+}
+
+.workspace[aria-busy="true"] .content-region {
+  opacity: 0.68;
 }
 
 .data-table {
@@ -174,16 +194,56 @@ h2 {
   font-size: 0.86rem;
 }
 
-.stock-form {
+.view-controls {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.inline-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
   gap: 0.8rem;
 }
 
-.stock-form label {
+.form-grid {
   display: grid;
-  gap: 0.35rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.operation-form {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--surface);
+}
+
+.operation-form button,
+.operation-form input[type="submit"] {
+  margin-top: 0.35rem;
+}
+
+.danger-zone {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--border));
+}
+
+.stock-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.stock-form h3,
+.stock-form button,
+.stock-form input[type="submit"] {
+  grid-column: 1 / -1;
 }
 
 .empty-state {
@@ -200,5 +260,19 @@ h2 {
 
   .stock-form {
     grid-template-columns: 1fr;
+  }
+
+  .inline-form,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-shell {
+    width: min(100% - 1rem, 1100px);
+    padding-top: 0.5rem;
+  }
+
+  .card {
+    padding: 1rem;
   }
 }

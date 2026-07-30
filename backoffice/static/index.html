@@ -61,7 +61,7 @@
         <button type="button" data-resource="users">Utilisateurs</button>
       </nav>
 
-      <section class="card">
+      <section class="card workspace" aria-labelledby="view-title">
         <div class="section-heading">
           <div>
             <p class="eyebrow">Vue active</p>
@@ -73,45 +73,126 @@
         </div>
 
         <p id="app-message" class="message" role="status" aria-live="polite"></p>
+        <p id="resource-summary" class="muted" aria-live="polite"></p>
         <div id="content" class="content-region"></div>
-      </section>
 
-      <section id="stock-operation-panel" class="card" hidden>
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Opération</p>
-            <h2>Modifier un stock</h2>
+        <section id="branches-panel" class="view-controls" aria-label="Consultation des succursales" hidden>
+          <h3>Consulter une succursale</h3>
+          <form id="branch-detail-form" class="inline-form">
+            <label for="branch-detail-id">Identifiant numérique</label>
+            <input id="branch-detail-id" name="branch_id" type="number" min="1" step="1" required>
+            <button type="submit" class="secondary">Afficher la succursale</button>
+          </form>
+        </section>
+
+        <section id="products-panel" class="view-controls" aria-label="Consultation des produits" hidden>
+          <h3>Consulter un produit</h3>
+          <form id="product-detail-form" class="inline-form">
+            <label for="product-detail-id">Identifiant externe</label>
+            <input id="product-detail-id" name="external_product_id" required placeholder="HB-MON-2102">
+            <button type="submit" class="secondary">Afficher le produit</button>
+          </form>
+        </section>
+
+        <section id="users-panel" class="view-controls" aria-label="Gestion des common users" hidden>
+          <h3>Filtrer les common users</h3>
+          <form id="users-filter-form" class="inline-form">
+            <label for="users-status">Statut</label>
+            <select id="users-status" name="status" value="active">
+              <option value="active">Actifs</option>
+              <option value="deleted">Supprimés</option>
+              <option value="all">Tous</option>
+            </select>
+            <label for="users-branch-filter">Identifiant de succursale (optionnel)</label>
+            <input id="users-branch-filter" name="branch_id" type="number" min="1" step="1">
+            <button type="submit" class="secondary">Appliquer les filtres</button>
+          </form>
+
+          <div class="form-grid">
+            <form id="user-create-form" class="operation-form">
+              <h3>Créer un common user</h3>
+              <label for="create-username">Nom d’utilisateur</label>
+              <input id="create-username" name="username" required autocomplete="off">
+              <label for="create-password">Mot de passe initial</label>
+              <input id="create-password" name="password" type="password" required autocomplete="new-password">
+              <label for="create-branch-id">Identifiant de succursale</label>
+              <input id="create-branch-id" name="branch_id" type="number" min="1" step="1" required>
+              <input type="submit" value="Créer l’utilisateur">
+            </form>
+
+            <form id="user-detail-form" class="operation-form">
+              <h3>Consulter un utilisateur</h3>
+              <label for="detail-user-id">Identifiant utilisateur</label>
+              <input id="detail-user-id" name="user_id" type="number" min="1" step="1" required>
+              <button type="submit" class="secondary">Afficher l’utilisateur</button>
+            </form>
+
+            <form id="user-edit-form" class="operation-form">
+              <h3>Modifier un utilisateur</h3>
+              <label for="edit-user-id">Identifiant utilisateur</label>
+              <input id="edit-user-id" name="user_id" type="number" min="1" step="1" required>
+              <label for="edit-username">Nouveau nom d’utilisateur</label>
+              <input id="edit-username" name="username" autocomplete="off">
+              <label for="edit-branch-id">Nouvelle succursale</label>
+              <input id="edit-branch-id" name="branch_id" type="number" min="1" step="1">
+              <input type="submit" value="Enregistrer les modifications">
+            </form>
+
+            <form id="user-password-form" class="operation-form">
+              <h3>Changer le mot de passe</h3>
+              <label for="password-user-id">Identifiant utilisateur</label>
+              <input id="password-user-id" name="user_id" type="number" min="1" step="1" required>
+              <label for="new-password">Nouveau mot de passe</label>
+              <input id="new-password" name="new_password" type="password" required autocomplete="new-password">
+              <input type="submit" value="Changer le mot de passe">
+            </form>
+
+            <form id="user-delete-form" class="operation-form danger-zone">
+              <h3>Suppression logique</h3>
+              <p class="muted">Le compte est désactivé et conservé pour la traçabilité.</p>
+              <label for="delete-user-id">Identifiant utilisateur</label>
+              <input id="delete-user-id" name="user_id" type="number" min="1" step="1" required>
+              <input type="submit" class="danger" value="Supprimer logiquement">
+            </form>
           </div>
-        </div>
+        </section>
 
-        <form id="stock-operation-form" class="stock-form">
-          <label for="stock-product-id">Identifiant du produit</label>
-          <input
-            id="stock-product-id"
-            name="product_id"
-            required
-            placeholder="HB-MON-2102"
-          >
+        <section id="stocks-panel" class="view-controls" aria-label="Gestion du stock de la succursale" hidden>
+          <h3>Stock de la succursale</h3>
+          <form id="stock-filter-form" class="inline-form">
+            <label for="available-only">Disponibilité</label>
+            <select id="available-only" name="available_only" value="true">
+              <option value="true">Produits disponibles uniquement</option>
+              <option value="false">Tous les produits</option>
+            </select>
+            <button type="submit" class="secondary">Actualiser le stock</button>
+          </form>
 
-          <label for="stock-quantity">Quantité</label>
-          <input
-            id="stock-quantity"
-            name="quantity"
-            type="number"
-            min="1"
-            step="1"
-            required
-            value="1"
-          >
+          <form id="stock-detail-form" class="inline-form">
+            <label for="stock-detail-product-id">Identifiant externe du produit</label>
+            <input id="stock-detail-product-id" name="external_product_id" required placeholder="HB-MON-2102">
+            <button type="submit" class="secondary">Afficher cette ligne</button>
+          </form>
 
-          <label for="stock-action">Action</label>
-          <select id="stock-action" name="action">
-            <option value="add">Ajouter</option>
-            <option value="remove">Retirer</option>
-          </select>
-
-          <button type="submit">Exécuter</button>
-        </form>
+          <form id="stock-operation-form" class="operation-form stock-form">
+            <h3>Modifier le stock</h3>
+            <label for="stock-product-id">Identifiant externe du produit</label>
+            <input id="stock-product-id" name="product_id" required placeholder="HB-MON-2102">
+            <label for="stock-quantity">Quantité</label>
+            <input id="stock-quantity" name="quantity" type="number" min="1" step="1" required value="1">
+            <label for="stock-action">Action</label>
+            <select id="stock-action" name="action" value="add">
+              <option value="add">Ajouter</option>
+              <option value="remove">Retirer</option>
+            </select>
+            <label for="movement-available-only">Liste affichée après l’opération</label>
+            <select id="movement-available-only" name="available_only" value="true">
+              <option value="true">Produits disponibles uniquement</option>
+              <option value="false">Tous les produits</option>
+            </select>
+            <input type="submit" value="Exécuter le mouvement">
+          </form>
+        </section>
       </section>
     </section>
   </main>
