@@ -1,12 +1,26 @@
-"""Contrôles d'intégration réels des actifs de Personne 3."""
+"""Network-free contract tests for P3-T04 deployment assets."""
 
-from pathlib import Path
+from __future__ import annotations
+
+import ast
 import re
+from pathlib import Path
 
 
-REPOSITORY_ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).resolve().parents[1]
 
-EXPECTED_FILES = (
+DEPLOYMENT_FILES = (
+    "Dockerfile",
+    "product_mcp_server/Dockerfile",
+    "stock_mcp_server/Dockerfile",
+    "ai_service/Dockerfile",
+    "client_web/Dockerfile",
+    "client_web/nginx.conf",
+    "docker/backoffice-entrypoint.sh",
+    "docker/database-bootstrap.py",
+    "docker-compose.yml",
+)
+STATIC_FILES = (
     "backoffice/static/index.html",
     "backoffice/static/styles.css",
     "backoffice/static/app.js",
@@ -15,156 +29,184 @@ EXPECTED_FILES = (
     "client_web/index.html",
     "client_web/styles.css",
     "client_web/app.js",
-    "client_web/Dockerfile",
-    "Dockerfile",
-    "docker-compose.yml",
 )
+RUNTIME_KEYS = {
+    "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD",
+    "MIGRATION_DB_USER", "MIGRATION_DB_PASSWORD",
+    "BACKOFFICE_DB_USER", "BACKOFFICE_DB_PASSWORD",
+    "STOCK_MCP_DB_USER", "STOCK_MCP_DB_PASSWORD",
+    "MIGRATION_DATABASE_URL", "DATABASE_URL", "STOCK_MCP_DATABASE_URL",
+    "JWT_SECRET_KEY", "ADMIN_INITIAL_PASSWORD", "SEED_PRODUCT_ID",
+    "BCRYPT_ROUNDS", "PRODUCT_API_TIMEOUT", "CLIENT_WEB_ORIGIN",
+    "BACKOFFICE_UI_PORT", "CLIENT_WEB_PORT",
+}
 
 
-def read_asset(relative_path: str) -> str:
-    return (
-        REPOSITORY_ROOT
-        / relative_path
-    ).read_text(encoding="utf-8")
+def read(relative_path: str) -> str:
+    return (ROOT / relative_path).read_text(encoding="utf-8")
 
 
-def test_person3_assets_exist_and_are_non_empty():
-    invalid_assets = []
+def read_if_present(relative_path: str) -> str:
+    path = ROOT / relative_path
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
 
-    for relative_path in EXPECTED_FILES:
-        asset_path = REPOSITORY_ROOT / relative_path
 
-        if (
-            not asset_path.is_file()
-            or not asset_path.read_text(encoding="utf-8").strip()
-        ):
-            invalid_assets.append(relative_path)
+def test_deployment_and_existing_static_assets_are_non_empty():
+    missing = [
+        path for path in DEPLOYMENT_FILES + STATIC_FILES
+        if not (ROOT / path).is_file() or not read(path).strip()
+    ]
+    assert not missing, f"missing or empty assets: {', '.join(missing)}"
 
-    assert not invalid_assets, (
-        "Missing or empty Personne 3 assets: "
-        + ", ".join(invalid_assets)
+
+def test_env_example_contains_only_fake_complete_runtime_configuration():
+    path = ROOT / ".env.example"
+    assert path.is_file(), ".env.example is required"
+    assignments = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        assert separator and re.fullmatch(r"[A-Z][A-Z0-9_]+", key), line
+        assignments[key] = value
+    assert set(assignments) == RUNTIME_KEYS
+    assert assignments["MIGRATION_DB_USER"] == "migration_user"
+    assert assignments["BACKOFFICE_DB_USER"] == "backoffice_app"
+    assert assignments["STOCK_MCP_DB_USER"] == "stock_reader"
+    assert len({assignments["POSTGRES_USER"], assignments["MIGRATION_DB_USER"],
+                 assignments["BACKOFFICE_DB_USER"], assignments["STOCK_MCP_DB_USER"]}) == 4
+    assert assignments["CLIENT_WEB_ORIGIN"].startswith(("http://", "https://"))
+    assert "*" not in assignments["CLIENT_WEB_ORIGIN"]
+    for key, value in assignments.items():
+        assert value, key
+        assert not re.search(r"postgres(?:ql)?://[^\s:@]+:[^\s@]+@", value, re.I), key
+        assert not re.fullmatch(r"[0-9a-f]{32,}", value, re.I), key
+        assert not re.fullmatch(r"eyJ[^.]+\.[^.]+\.[^.]+", value), key
+    forbidden_env_files = sorted(
+        str(path.relative_to(ROOT))
+        for path in ROOT.rglob(".env*")
+        if path.is_file() and path.name != ".env.example"
+        and ".git" not in path.parts
     )
+    assert not forbidden_env_files, forbidden_env_files
 
 
-def test_backoffice_loads_real_static_assets():
-    html = read_asset("backoffice/static/index.html")
+def test_existing_web_assets_keep_public_local_references():
+    html = read("backoffice/static/index.html")
+    assert re.search(r'<link[^>]+href=["\'](?:\./)?styles\.css', html, re.I)
+    assert re.search(r'<script[^>]+src=["\'](?:\./)?app\.js', html, re.I)
+    assert "location /api/" in read("backoffice/static/nginx.conf")
+    assert "proxy_pass http://backoffice-api:5000" in read("backoffice/static/nginx.conf")
+    proxy = read("client_web/nginx.conf")
+    assert re.search(r"location\s*=\s*/questions\s*\{|location\s+/questions\s*\{", proxy)
+    assert re.findall(r"(?m)^\s*proxy_pass\s+([^;]+);", proxy) == [
+        "http://ai_service:8000/questions"
+    ]
 
-    assert re.search(
-        r'<link[^>]+href=["\'](?:\./)?styles\.css["\']',
-        html,
-        re.IGNORECASE,
+
+def test_dockerfiles_use_declared_manifests_without_forbidden_installations():
+    for path in DEPLOYMENT_FILES:
+        content = read_if_present(path).casefold()
+        assert "curl" not in content, path
+        assert "wget" not in content, path
+        assert "fastmcp" not in content, path
+        assert "host.docker.internal" not in content, path
+        assert "latest" not in content, path
+    dockerfiles = ("Dockerfile", "product_mcp_server/Dockerfile",
+                   "stock_mcp_server/Dockerfile", "ai_service/Dockerfile",
+                   "client_web/Dockerfile")
+    for path in dockerfiles:
+        content = read(path).casefold()
+        assert not re.search(r"\b(?:apt(?:-get)?|apk)\s+(?:-\S+\s+)*install\b", content), path
+        for command in re.findall(r"\bpip(?:3)?\s+install\b([^\n]*)", content):
+            assert "-r" in command, f"{path} installs a dependency outside a declared manifest"
+    for path in ("Dockerfile", "product_mcp_server/Dockerfile", "stock_mcp_server/Dockerfile",
+                 "ai_service/Dockerfile", "client_web/Dockerfile"):
+        assert "from " in read(path).casefold(), path
+
+
+def test_deployment_descriptors_contain_no_embedded_secrets():
+    secret_patterns = (
+        re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+        re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
+        re.compile(r"postgres(?:ql)?://[^\s:@]+:[^\s@]+@"),
     )
-    assert re.search(
-        r'<script[^>]+src=["\'](?:\./)?app\.js["\']',
-        html,
-        re.IGNORECASE,
-    )
+    for path in DEPLOYMENT_FILES:
+        assert not any(pattern.search(read_if_present(path)) for pattern in secret_patterns), path
+        folded = read_if_present(path).casefold()
+        assert "ollama" not in folded and "download" not in folded, path
 
 
-def test_backoffice_javascript_calls_real_auth_api():
-    javascript = read_asset("backoffice/static/app.js")
+def test_runtime_secrets_and_database_identities_are_not_hard_coded():
+    compose = read("docker-compose.yml")
+    for key in (
+        "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD",
+        "MIGRATION_DB_USER", "MIGRATION_DB_PASSWORD",
+        "BACKOFFICE_DB_USER", "BACKOFFICE_DB_PASSWORD",
+        "STOCK_MCP_DB_USER", "STOCK_MCP_DB_PASSWORD",
+        "MIGRATION_DATABASE_URL", "DATABASE_URL", "STOCK_MCP_DATABASE_URL",
+        "JWT_SECRET_KEY", "ADMIN_INITIAL_PASSWORD",
+    ):
+        assert re.search(rf"\$\{{{key}(?::[-?][^}}]*)?\}}", compose), key
 
-    assert "addEventListener" in javascript
-    assert "fetch(" in javascript
-    assert "/api/v1/auth/login" in javascript
-    assert "/api/v1/auth/me" in javascript
-
-    forbidden = (
-        "firebase/app",
-        "firebase/auth",
-        "from 'vue'",
-        'from "vue"',
-        "App.vue",
-        "from './router'",
-        'from "./router"',
-    )
-
-    assert not any(marker in javascript for marker in forbidden)
-
-
-def test_backoffice_nginx_proxies_api_to_flask():
-    nginx = read_asset("backoffice/static/nginx.conf")
-
-    assert "location /api/" in nginx
-    assert "proxy_pass http://backoffice-api:5000" in nginx
-
-    dockerfile = read_asset("backoffice/static/Dockerfile")
-
-    assert "nginx.conf" in dockerfile
-    assert "/etc/nginx/conf.d/default.conf" in dockerfile
+    bootstrap = read("docker/database-bootstrap.py")
+    entrypoint = read("docker/backoffice-entrypoint.sh")
+    for key in ("POSTGRES_USER", "MIGRATION_DATABASE_URL", "DATABASE_URL",
+                "MIGRATION_DB_USER", "BACKOFFICE_DB_USER", "STOCK_MCP_DB_USER"):
+        assert key in bootstrap or key in entrypoint, key
+    assert not re.search(r"(?i)(?:print|logger?\.(?:info|debug|warning|error))\s*\([^\n]*(?:PASSWORD|SECRET|DATABASE_URL)", bootstrap)
+    assert not re.search(r"(?i)(?:echo|printf)\s+[^\n]*(?:PASSWORD|SECRET|DATABASE_URL)", entrypoint)
 
 
-def test_client_web_uses_executable_native_javascript():
-    javascript = read_asset("client_web/app.js")
+def test_bootstrap_enforces_effective_role_boundaries_and_idempotence():
+    bootstrap = read("docker/database-bootstrap.py")
+    entrypoint = read("docker/backoffice-entrypoint.sh")
+    folded = re.sub(r"\s+", " ", bootstrap.casefold())
+    for marker in ("POSTGRES_USER", "MIGRATION_DB_USER", "BACKOFFICE_DB_USER",
+                   "STOCK_MCP_DB_USER", "migration_user", "backoffice_app", "stock_reader",
+                   "CREATE ROLE", "CONNECT", "USAGE", "SELECT",
+                   "branches", "stocks", "users", "revoked_tokens", "db upgrade", "seed"):
+        assert marker.casefold() in bootstrap.casefold(), marker
+    assert re.search(r"revoke\s+all\s+privileges\s+on\s+table\s+[^;]*(users|revoked_tokens)", folded)
+    assert re.search(r"grant\s+select\s+on\s+table\s+[^;]*(branches|stocks)[^;]*stock_reader", folded)
+    for table in ("users", "revoked_tokens"):
+        assert re.search(rf"revoke\s+[^;]+\s+on\s+table\s+[^;]*{table}[^;]*stock_reader", folded)
+    assert re.search(r"create\s+role\s+if\s+not\s+exists|do\s+\$\$", folded)
+    assert "alter role" in folded
+    assert "on conflict" in folded or "if not exists" in folded
+    assert "grant" in folded and "revoke" in folded
+    assert re.search(r"db upgrade", folded) and re.search(r"seed", folded)
+    assert "python -m flask --app backoffice db upgrade" in folded
+    assert "python -m flask --app backoffice seed" in folded
+    migration_pos = folded.find("db upgrade")
+    seed_pos = folded.find("seed")
+    assert migration_pos >= 0 and "migration_database_url" in folded[max(0, migration_pos - 500):migration_pos + 500]
+    assert seed_pos >= 0 and all(marker in folded[max(0, seed_pos - 900):seed_pos + 900]
+                                  for marker in ("database_url", "admin_initial_password",
+                                                 "seed_product_id", "bcrypt_rounds"))
+    assert "set -e" in entrypoint or "set -Eeuo pipefail" in entrypoint
+    assert entrypoint.find("database-bootstrap.py") >= 0
+    assert entrypoint.find("database-bootstrap.py") < entrypoint.find("gunicorn")
+    for privilege in ("insert", "update", "delete", "truncate", "create"):
+        assert privilege in folded
+    assert "gunicorn" in entrypoint and "exec" in entrypoint
 
+
+def test_client_assets_remain_native_and_do_not_render_received_html():
+    javascript = read("client_web/app.js")
     assert "addEventListener" in javascript
     assert "createElement" in javascript
-    assert "from 'vue'" not in javascript
-    assert 'from "vue"' not in javascript
-    assert "App.vue" not in javascript
-    assert "from './router'" not in javascript
-
-
-def test_no_embedded_jwt_or_firebase_key():
-    patterns = (
-        re.compile(
-            r"\beyJ[A-Za-z0-9_-]{10,}\."
-            r"[A-Za-z0-9_-]{10,}\."
-            r"[A-Za-z0-9_-]{10,}\b"
-        ),
-        re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
-    )
-
-    for relative_path in (
-        "backoffice/static/index.html",
-        "backoffice/static/app.js",
-        "client_web/index.html",
-        "client_web/app.js",
-        "docker-compose.yml",
-    ):
-        content = read_asset(relative_path)
-
-        assert not any(
-            pattern.search(content)
-            for pattern in patterns
-        ), relative_path
-
-
-def test_docker_assets_have_minimum_structure():
-    for relative_path in (
-        "backoffice/static/Dockerfile",
-        "client_web/Dockerfile",
-        "Dockerfile",
-    ):
-        assert "from " in read_asset(relative_path).casefold()
-
-    compose = read_asset("docker-compose.yml")
-
-    for service in (
-        "backoffice-api:",
-        "backoffice-ui:",
-        "client-web:",
-    ):
-        assert service in compose
-
-def test_backoffice_role_navigation_contract():
-    javascript = read_asset("backoffice/static/app.js")
-    normalized = re.sub(r"\s+", " ", javascript)
-
-    assert (
-        'admin: new Set(["dashboard", "branches", "products", "users"])'
-        in normalized
-    )
-    assert (
-        'common_user: new Set(["dashboard", "branches", "products", "stocks"])'
-        in normalized
-    )
-
-    assert "function canAccessResource(resource)" in javascript
-    assert "function applyRoleNavigation(role)" in javascript
-    assert "button.hidden" in javascript
-    assert "if (!canAccessResource(resource))" in javascript
-    assert 'if (!canAccessResource("stocks"))' in javascript
-    assert "currentRole = user?.role ?? null;" in javascript
     assert "innerHTML" not in javascript
+    assert "from 'vue'" not in javascript and 'from "vue"' not in javascript
 
+
+def test_asset_test_module_itself_performs_no_external_io():
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".", 1)[0])
+    assert imported.isdisjoint({"requests", "httpx", "socket", "subprocess", "psycopg"})

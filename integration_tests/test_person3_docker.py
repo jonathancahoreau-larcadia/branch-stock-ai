@@ -88,6 +88,16 @@ def top_level_network_names(text: str) -> set[str]:
     return set(re.findall(r"^  ([A-Za-z0-9_-]+):\s*$", top_level_network_block(text), re.M))
 
 
+def top_level_volume_block(text: str) -> str:
+    match = re.search(r"(?ms)^volumes:\s*\n(?P<body>.*?)(?=^[^ \n].*:|\Z)", text)
+    assert match, "a top-level volumes declaration is required"
+    return match.group("body")
+
+
+def top_level_volume_names(text: str) -> set[str]:
+    return set(re.findall(r"^  ([A-Za-z0-9_.-]+):\s*$", top_level_volume_block(text), re.M))
+
+
 def service_network_names(service: str, text: str) -> set[str]:
     block = service_block(text, service)
     match = re.search(r"(?ms)^    networks:\s*\n(?P<body>.*?)(?=^    [A-Za-z_][A-Za-z0-9_-]*:|\Z)", block)
@@ -138,6 +148,16 @@ def test_compose_uses_approved_images_persistent_database_and_read_only_catalogu
                for key in ("MIGRATION_DB_USER", "BACKOFFICE_DB_USER", "STOCK_MCP_DB_USER"))
     assert "pg_isready" in database
     assert not re.search(r"(?ms)^\s+ports:\s*\n(?:\s+-[^\n]*\n)+", database)
+
+
+def test_postgres_data_mount_uses_a_declared_top_level_named_volume():
+    text = compose_text()
+    assert "postgres-data" in top_level_volume_names(text)
+    database = service_block(text, "database")
+    assert re.search(
+        r"(?m)^\s+-\s+postgres-data:/var/lib/postgresql/data\s*$",
+        database,
+    )
 
 
 def test_compose_uses_only_internal_urls_and_the_two_public_ports():
@@ -289,6 +309,38 @@ def test_compose_interpolates_all_runtime_identity_urls_and_secrets():
             assert re.search(r"\$\{" + re.escape(key) + r"(?:[:-])", value), (service, key, value)
     for key in ("MIGRATION_DB_PASSWORD", "BACKOFFICE_DB_PASSWORD", "STOCK_MCP_DB_PASSWORD"):
         assert key not in environment_block("database", text)
+
+
+def test_application_passwords_and_migration_url_are_bootstrap_only():
+    text = compose_text()
+    bootstrap_service = "backoffice-api"
+    bootstrap_environment = environment_block(bootstrap_service, text)
+    bootstrap_only = (
+        "MIGRATION_DB_PASSWORD",
+        "BACKOFFICE_DB_PASSWORD",
+        "STOCK_MCP_DB_PASSWORD",
+        "MIGRATION_DATABASE_URL",
+    )
+    for key in bootstrap_only:
+        value = environment_value(bootstrap_service, key, text)
+        assert re.search(r"\$\{" + re.escape(key) + r"(?:[:-])", value), (key, value)
+        assert re.search(
+            rf"^\s*(?:{re.escape(key)}\s*:|-\s*{re.escape(key)}\s*=)",
+            bootstrap_environment,
+            re.M,
+        )
+
+    for service in SERVICES - {bootstrap_service}:
+        environment = environment_block(service, text)
+        for key in bootstrap_only:
+            assert not re.search(
+                rf"^\s*(?:{re.escape(key)}\s*:|-\s*{re.escape(key)}\s*=)",
+                environment,
+                re.M,
+            ), (
+                service,
+                key,
+            )
 
 
 def test_only_contractual_base_images_and_no_model_runtime_are_declared():
