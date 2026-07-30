@@ -172,6 +172,291 @@ def test_french_fallback_question_is_classified_and_answered_without_ollama(
     ]
 
 
+@pytest.mark.parametrize(
+    ("question", "expected_type", "expected_calls"),
+    [
+        (
+            "Donne-moi les détails du produit HB-MON-2102.",
+            "product_details",
+            [
+                (
+                    "product",
+                    "get_product_details",
+                    {"external_product_id": "HB-MON-2102"},
+                )
+            ],
+        ),
+        (
+            "Give me details about product HB-MON-2102.",
+            "product_details",
+            [
+                (
+                    "product",
+                    "get_product_details",
+                    {"external_product_id": "HB-MON-2102"},
+                )
+            ],
+        ),
+        (
+            "Dans quelle succursale reste-t-il du produit HB-MON-2102 ?",
+            "product_availability",
+            [
+                (
+                    "product",
+                    "get_product_details",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+                (
+                    "stock",
+                    "get_stock_for_product",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+            ],
+        ),
+        (
+            "Dans quelle succursale trouve-t-on HB-MON-2102 ?",
+            "product_availability",
+            [
+                (
+                    "product",
+                    "get_product_details",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+                (
+                    "stock",
+                    "get_stock_for_product",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+            ],
+        ),
+        (
+            "Which branch has stock of product HB-MON-2102?",
+            "product_availability",
+            [
+                (
+                    "product",
+                    "get_product_details",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+                (
+                    "stock",
+                    "get_stock_for_product",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+            ],
+        ),
+        (
+            "Quels produits sont disponibles dans la succursale 2 ?",
+            "branch_inventory",
+            [
+                ("product", "list_products", None),
+                ("stock", "list_branch_stock", {"branch_id": 2}),
+            ],
+        ),
+        (
+            "Which products are available in branch 2?",
+            "branch_inventory",
+            [
+                ("product", "list_products", None),
+                ("stock", "list_branch_stock", {"branch_id": 2}),
+            ],
+        ),
+        (
+            "Où trouver 2 unités de HB-MON-2102 ?",
+            "product_availability",
+            [
+                (
+                    "product",
+                    "get_product_details",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+                (
+                    "stock",
+                    "get_stock_for_product",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+            ],
+        ),
+        (
+            "Where can I find 2 units of HB-MON-2102?",
+            "product_availability",
+            [
+                (
+                    "product",
+                    "get_product_details",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+                (
+                    "stock",
+                    "get_stock_for_product",
+                    {"external_product_id": "HB-MON-2102"},
+                ),
+            ],
+        ),
+    ],
+)
+def test_complete_deterministic_intents_have_priority_over_ollama_unsupported(
+    monkeypatch, question, expected_type, expected_calls
+):
+    module = module_under_test()
+    mcp = FakeMCP(
+        {
+            ("product", "list_products"): envelope(
+                {
+                    "products": [
+                        {
+                            "external_product_id": "HB-MON-2102",
+                            "name": "Compact Monitor",
+                        }
+                    ]
+                }
+            ),
+            ("product", "get_product_details"): envelope(
+                public_product_detail("HB-MON-2102", "Compact Monitor")
+            ),
+            ("stock", "get_stock_for_product"): envelope(
+                {"external_product_id": "HB-MON-2102", "branches": []}
+            ),
+            ("stock", "list_branch_stock"): envelope(
+                {"branch_id": 2, "branch_name": "Toulon", "stocks": []}
+            ),
+        }
+    )
+    ollama = FakeOllama(
+        intent={"question_type": "unsupported", "parameters": {}}
+    )
+    grounding_calls, _ = install_grounding_spy(monkeypatch, module)
+
+    run(make_service(module, mcp, ollama).answer_question(question))
+
+    assert grounding_calls[0][0] == expected_type
+    assert mcp.calls == expected_calls
+    assert ollama.intent_calls == []
+    assert ollama.reformulation_calls == []
+    serialized_calls = json.dumps(mcp.calls)
+    if "HB-MON-2102" in question:
+        assert "HB-MON-2102" in serialized_calls
+        assert "hb-mon-2102" not in serialized_calls
+
+
+def test_ollama_valid_supported_intent_is_used_when_deterministic_is_unsupported(
+    monkeypatch,
+):
+    module = module_under_test()
+    question = "Localise le stock correspondant à HB-MON-2102."
+    mcp = FakeMCP(
+        {
+            ("product", "get_product_details"): envelope(
+                public_product_detail("HB-MON-2102", "Compact Monitor")
+            ),
+            ("stock", "get_stock_for_product"): envelope(
+                {"external_product_id": "HB-MON-2102", "branches": []}
+            ),
+        }
+    )
+    ollama = FakeOllama(
+        intent={
+            "question_type": "product_availability",
+            "parameters": {"product": "HB-MON-2102"},
+        }
+    )
+    grounding_calls, _ = install_grounding_spy(monkeypatch, module)
+
+    run(make_service(module, mcp, ollama).answer_question(question))
+
+    assert ollama.intent_calls == [question]
+    assert grounding_calls[0][0] == "product_availability"
+    assert mcp.calls == [
+        (
+            "product",
+            "get_product_details",
+            {"external_product_id": "HB-MON-2102"},
+        ),
+        (
+            "stock",
+            "get_stock_for_product",
+            {"external_product_id": "HB-MON-2102"},
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        {"unexpected": True},
+        {"question_type": "unsupported", "parameters": {"extra": True}},
+    ],
+)
+def test_invalid_ollama_intent_uses_complete_deterministic_unsupported(
+    monkeypatch, candidate
+):
+    module = module_under_test()
+    question = "Peux-tu raconter une histoire sur la météo ?"
+    ollama = FakeOllama(intent=candidate)
+    mcp = FakeMCP()
+    grounding_calls, _ = install_grounding_spy(
+        monkeypatch,
+        module,
+        status="unsupported",
+        answer="Unsupported.",
+    )
+
+    run(make_service(module, mcp, ollama).answer_question(question))
+
+    assert ollama.intent_calls == [question]
+    assert grounding_calls == [("unsupported", {})]
+    assert mcp.calls == []
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        FakeProviderError("UPSTREAM_TIMEOUT", "secret reasoning timeout"),
+        FakeProviderError(
+            "AI_PROVIDER_UNAVAILABLE",
+            "secret prompt and private endpoint",
+        ),
+    ],
+)
+def test_provider_failure_does_not_override_complete_deterministic_intent(
+    monkeypatch, error
+):
+    module = module_under_test()
+    question = "Donne-moi les détails du produit HB-MON-2102."
+    ollama = FakeOllama(intent_error=error)
+    mcp = FakeMCP(
+        {
+            ("product", "get_product_details"): envelope(
+                public_product_detail("HB-MON-2102", "Écran compact")
+            )
+        }
+    )
+    grounding_calls, _ = install_grounding_spy(monkeypatch, module)
+
+    result = run(make_service(module, mcp, ollama).answer_question(question))
+
+    assert result["status"] == "success"
+    assert grounding_calls[0][0] == "product_details"
+    assert ollama.intent_calls == []
+    assert "secret" not in json.dumps(result).casefold()
+
+
+def test_truly_out_of_scope_question_stays_unsupported():
+    module = module_under_test()
+    question = "Quelle est la météo demain ?"
+    ollama = FakeOllama(
+        intent={"question_type": "unsupported", "parameters": {}}
+    )
+    mcp = FakeMCP()
+
+    result = run(make_service(module, mcp, ollama).answer_question(question))
+
+    assert result["status"] == "unsupported"
+    assert ollama.intent_calls == [question]
+    assert ollama.reformulation_calls == []
+    assert mcp.calls == []
+
+
 def test_french_anaphora_never_invents_a_product_identifier():
     module = module_under_test()
     mcp = FakeMCP()

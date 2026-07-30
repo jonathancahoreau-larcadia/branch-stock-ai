@@ -407,6 +407,57 @@ def test_invalid_ollama_responses_are_safe_provider_errors(monkeypatch, operatio
     assert "not-json" not in exc_info.value.message
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        "```json\n{\"question_type\":\"unsupported\",\"parameters\":{}}\n```",
+        "The intent is product_details.",
+    ],
+)
+def test_markdown_or_free_text_is_never_accepted_as_an_intent(
+    monkeypatch, content
+):
+    module = module_under_test()
+    state = {}
+    install_transport(
+        monkeypatch,
+        module,
+        state,
+        {"message": {"content": content}},
+    )
+
+    with pytest.raises(module.OllamaClientError) as exc_info:
+        run(client(module, monkeypatch).generate_intent("question"))
+
+    assert exc_info.value.code == "AI_PROVIDER_UNAVAILABLE"
+    assert content not in exc_info.value.message
+
+
+def test_reasoning_and_prompt_metadata_are_never_returned_or_leaked(
+    monkeypatch,
+):
+    module = module_under_test()
+    state = {}
+    secret_reasoning = "SECRET_REASONING_WITH_PRIVATE_PROMPT"
+    response = {
+        "prompt": "SECRET_SYSTEM_PROMPT",
+        "message": {
+            "content": json.dumps(
+                {"question_type": "unsupported", "parameters": {}}
+            ),
+            "thinking": secret_reasoning,
+        },
+    }
+    install_transport(monkeypatch, module, state, response)
+
+    result = run(client(module, monkeypatch).generate_intent("question"))
+
+    assert result == {"question_type": "unsupported", "parameters": {}}
+    serialized = json.dumps(result)
+    assert secret_reasoning not in serialized
+    assert "SECRET_SYSTEM_PROMPT" not in serialized
+
+
 @pytest.mark.parametrize("error", [ConnectionError("secret endpoint"), OSError("password=secret")])
 def test_transport_failures_are_safe_provider_errors(monkeypatch, error):
     module = module_under_test()
