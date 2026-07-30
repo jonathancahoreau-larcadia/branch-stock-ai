@@ -3,62 +3,57 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HBntory — Liste de courses</title>
+  <title>HBntory — Assistant stock public</title>
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
 </head>
 <body>
   <main class="shell">
-    <header>
+    <header class="hero">
       <p class="eyebrow">HBntory</p>
-      <h1>Préparer une liste de produits</h1>
-      <p>
-        Cette interface locale prépare la liste. Le raccordement à l’agent IA
-        et à <code>POST /questions</code> restera bloqué jusqu’à Personne 2.
+      <h1>Interroger les produits et les stocks</h1>
+      <p class="lede">
+        Posez une question anonyme. Chaque demande est indépendante et repose
+        uniquement sur les informations disponibles dans HBntory.
       </p>
     </header>
 
-    <section class="card">
-      <h2>Ajouter un produit</h2>
-      <form id="shopping-form">
-        <label>
-          Produit
-          <input id="product-name" name="product_name" required>
-        </label>
-
-        <label>
-          Quantité
+    <section class="card" aria-labelledby="question-heading">
+      <h2 id="question-heading">Votre question</h2>
+      <form id="question-form">
+        <label for="question">Question sur les produits ou le stock</label>
+        <div class="question-row">
           <input
-            id="product-quantity"
-            name="quantity"
-            type="number"
-            min="1"
-            step="1"
-            value="1"
+            id="question"
+            name="question"
+            type="text"
+            maxlength="1000"
+            autocomplete="off"
             required
           >
-        </label>
-
-        <button type="submit">Ajouter à la liste</button>
+          <button id="submit-button" type="submit">Demander</button>
+        </div>
       </form>
-      <p id="message" role="status" aria-live="polite"></p>
+
+      <div class="examples" aria-labelledby="examples-heading">
+        <h3 id="examples-heading">Exemples</h3>
+        <ul>
+          <li><span>Details</span> — Tell me about product product-1</li>
+          <li><span>Availability</span> — Which branch has stock of product product-1?</li>
+          <li><span>Branch</span> — What products are available in branch 2?</li>
+          <li><span>Shopping</span> — Shopping list: 2 Widget and 3 Gadget</li>
+        </ul>
+      </div>
     </section>
 
-    <section class="card">
-      <div class="heading-row">
-        <h2>Liste actuelle</h2>
-        <button id="clear-button" type="button" class="secondary">
-          Vider
-        </button>
-      </div>
-
-      <ul id="shopping-list"></ul>
-
-      <button id="generate-button" type="button">
-        Générer le résumé
-      </button>
-
-      <pre id="summary-output"></pre>
+    <section class="card response-card" aria-labelledby="response-heading">
+      <h2 id="response-heading">Réponse</h2>
+      <p id="request-status" role="status" aria-live="polite"></p>
+      <div id="answer-output" class="answer-output"></div>
+      <details>
+        <summary>Données structurées</summary>
+        <pre id="data-output"></pre>
+      </details>
     </section>
   </main>
 </body>

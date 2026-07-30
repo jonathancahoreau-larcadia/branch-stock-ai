@@ -1,95 +1,121 @@
 (() => {
   "use strict";
 
-  const form = document.querySelector("#shopping-form");
-  const listElement = document.querySelector("#shopping-list");
-  const message = document.querySelector("#message");
-  const generateButton = document.querySelector("#generate-button");
-  const clearButton = document.querySelector("#clear-button");
-  const summaryOutput = document.querySelector("#summary-output");
+  const form = document.querySelector("#question-form");
+  const questionInput = document.querySelector("#question");
+  const submitButton = document.querySelector("#submit-button");
+  const requestStatus = document.querySelector("#request-status");
+  const answerOutput = document.querySelector("#answer-output");
+  const dataOutput = document.querySelector("#data-output");
+  const acceptedStatuses = new Set([
+    "success",
+    "partial",
+    "unavailable",
+    "unsupported",
+  ]);
+  const statusLabels = {
+    success: "Success — réponse complète.",
+    partial: "Partial — réponse partielle.",
+    unavailable: "Unavailable — informations insuffisantes.",
+    unsupported: "Unsupported — question hors périmètre.",
+  };
+  const technicalError = "Une erreur technique empêche l’affichage de la réponse.";
+  let requestInProgress = false;
 
-  const items = [];
-
-  function render() {
-    listElement.replaceChildren();
-
-    if (!items.length) {
-      const empty = document.createElement("li");
-      empty.textContent = "La liste est vide.";
-      listElement.append(empty);
-      return;
-    }
-
-    items.forEach((item, index) => {
-      const row = document.createElement("li");
-      row.className = "shopping-item";
-
-      const label = document.createElement("span");
-      label.textContent = `${item.quantity} × ${item.name}`;
-
-      const removeButton = document.createElement("button");
-      removeButton.type = "button";
-      removeButton.textContent = "Retirer";
-      removeButton.addEventListener("click", () => {
-        items.splice(index, 1);
-        render();
-        summaryOutput.textContent = "";
-      });
-
-      row.append(label, removeButton);
-      listElement.append(row);
-    });
+  function updateSubmitState() {
+    submitButton.disabled =
+      requestInProgress || questionInput.value.trim().length === 0;
   }
 
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
+  function setStatus(state, message) {
+    requestStatus.className = `request-status request-status--${state}`;
+    requestStatus.dataset.state = state;
+    requestStatus.textContent = message;
+  }
 
-    const formData = new FormData(form);
-    const name = String(formData.get("product_name") ?? "").trim();
-    const quantity = Number(formData.get("quantity"));
+  function clearResponse() {
+    const emptyAnswer = document.createElement("span");
+    emptyAnswer.textContent = "";
+    answerOutput.replaceChildren(emptyAnswer);
+    answerOutput.textContent = "";
+    dataOutput.textContent = "";
+  }
 
-    if (!name || !Number.isInteger(quantity) || quantity < 1) {
-      message.textContent = "Produit et quantité positive obligatoires.";
-      return;
-    }
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
 
-    const existing = items.find(
-      (item) => item.name.toLocaleLowerCase("fr") === name.toLocaleLowerCase("fr")
+  function isPublicResponse(payload) {
+    return (
+      isRecord(payload) &&
+      acceptedStatuses.has(payload.status) &&
+      typeof payload.answer === "string" &&
+      isRecord(payload.data)
     );
+  }
 
-    if (existing) {
-      existing.quantity += quantity;
-    } else {
-      items.push({ name, quantity });
+  function safeHttpMessage(payload) {
+    if (
+      !isRecord(payload) ||
+      payload.status !== "error" ||
+      !isRecord(payload.error) ||
+      typeof payload.error.code !== "string" ||
+      payload.error.code.length === 0 ||
+      typeof payload.error.message !== "string" ||
+      payload.error.message.length === 0
+    ) {
+      return null;
     }
+    return payload.error.message;
+  }
 
-    form.reset();
-    document.querySelector("#product-quantity").value = "1";
-    message.textContent = "Produit ajouté.";
-    summaryOutput.textContent = "";
-    render();
-  });
+  questionInput.addEventListener("input", updateSubmitState);
 
-  generateButton.addEventListener("click", () => {
-    if (!items.length) {
-      summaryOutput.textContent = "Ajoutez au moins un produit.";
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const trimmedQuestion = questionInput.value.trim();
+    if (!trimmedQuestion || requestInProgress) {
+      updateSubmitState();
       return;
     }
 
-    summaryOutput.textContent = [
-      "Liste prête pour la future requête Personne 2 :",
-      ...items.map((item) => `- ${item.quantity} × ${item.name}`),
-      "",
-      "Aucun appel IA n’est effectué avant l’autorisation de Personne 2.",
-    ].join("\n");
+    requestInProgress = true;
+    updateSubmitState();
+    clearResponse();
+    setStatus("loading", "Chargement de la réponse…");
+
+    try {
+      const response = await fetch("/questions", {
+        method: "POST",
+        credentials: "omit",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({question: trimmedQuestion}),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        const message = safeHttpMessage(payload);
+        if (message === null) {
+          throw new Error("invalid error payload");
+        }
+        setStatus("error", message);
+        return;
+      }
+      if (!isPublicResponse(payload)) {
+        throw new Error("invalid response payload");
+      }
+
+      setStatus(payload.status, statusLabels[payload.status]);
+      answerOutput.textContent = payload.answer;
+      dataOutput.textContent = JSON.stringify(payload.data, null, 2);
+    } catch (_error) {
+      clearResponse();
+      setStatus("error", technicalError);
+    } finally {
+      requestInProgress = false;
+      updateSubmitState();
+    }
   });
 
-  clearButton.addEventListener("click", () => {
-    items.splice(0, items.length);
-    message.textContent = "Liste vidée.";
-    summaryOutput.textContent = "";
-    render();
-  });
-
-  render();
+  updateSubmitState();
 })();

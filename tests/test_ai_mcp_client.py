@@ -330,7 +330,7 @@ def test_ai_runtime_manifest_contains_only_the_approved_dependency():
     manifest = Path(__file__).parents[1] / "ai_service" / "requirements.txt"
     with manifest.open(encoding="utf-8") as manifest_file:
         dependencies = [line.strip() for line in manifest_file if line.strip()]
-    assert dependencies == ["mcp>=1.27,<2"]
+    assert dependencies == ["mcp>=1.27,<2", "Flask>=3.0,<4.0"]
 
 
 @pytest.mark.parametrize("target, tool_name", [("product", name) for name in PRODUCT_TOOLS] + [("stock", name) for name in STOCK_TOOLS])
