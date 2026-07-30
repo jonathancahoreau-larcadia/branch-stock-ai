@@ -66,6 +66,8 @@ class Config:
         "http://localhost:5001",
     )
     PRODUCT_API_TIMEOUT = os.getenv("PRODUCT_API_TIMEOUT", "5")
+    APP_ENV = os.getenv("APP_ENV")
     ADMIN_INITIAL_PASSWORD = os.getenv("ADMIN_INITIAL_PASSWORD")
+    LARGE_SEED_USER_PASSWORD = os.getenv("LARGE_SEED_USER_PASSWORD")
     SEED_PRODUCT_ID = os.getenv("SEED_PRODUCT_ID", "HB-MON-2102")
     BCRYPT_ROUNDS = os.getenv("BCRYPT_ROUNDS", "12")

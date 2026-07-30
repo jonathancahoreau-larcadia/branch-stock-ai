@@ -60,6 +60,8 @@ d’erreur nomme uniquement la variable concernée, jamais sa valeur.
 | `STOCK_MCP_DATABASE_URL` | `<url-postgresql-stock-factice>` |
 | `JWT_SECRET_KEY` | `<cle-jwt-longue-et-factice>` |
 | `ADMIN_INITIAL_PASSWORD` | `<mot-de-passe-admin-factice>` |
+| `APP_ENV` | `development` pour un environnement local explicite |
+| `LARGE_SEED_USER_PASSWORD` | `<mot-de-passe-utilisateur-demo-factice>` |
 | `SEED_PRODUCT_ID` | `HB-MON-2102` |
 | `BCRYPT_ROUNDS` | `12` |
 | `PRODUCT_API_TIMEOUT` | `5` |
@@ -148,6 +150,72 @@ La commande refuse les placeholders, réutilise bcrypt, incrémente
 `token_version` pour invalider les anciens JWT et effectue un rollback si le
 compte admin est absent ou incohérent. Elle n’affiche ni mot de passe ni hash.
 
+## Grand jeu de démonstration local
+
+Le petit seed exécuté au démarrage reste inchangé : il crée l’admin, Toulon,
+Marseille et le stock minimal obligatoire. La commande indépendante
+`seed-large` complète ce socle avec un volume destiné aux démonstrations.
+Elle n’est jamais exécutée automatiquement.
+
+La commande est autorisée seulement si `APP_ENV` vaut explicitement
+`development`, `local`, `demo` ou `test`. Elle refuse toute valeur absente,
+inconnue, `prod` ou `production`. Définissez dans le fichier runtime privé :
+
+```env
+APP_ENV=development
+LARGE_SEED_USER_PASSWORD=<valeur-réelle-privée>
+```
+
+Le mot de passe est obligatoire uniquement pour `seed-large`. Il est refusé
+s’il est vide, factice ou supérieur à 72 octets UTF-8, puis haché avec
+bcrypt. Il n’est jamais affiché.
+
+Vérifiez d’abord le plan sans écrire dans PostgreSQL :
+
+```bash
+docker compose --env-file "$HBN_RUNTIME_ENV_FILE" exec backoffice-api \
+  flask --app backoffice seed-large --dry-run
+```
+
+Créez ensuite le jeu par défaut :
+
+```bash
+docker compose --env-file "$HBN_RUNTIME_ENV_FILE" exec backoffice-api \
+  flask --app backoffice seed-large
+```
+
+Options disponibles :
+
+```text
+--branches INTEGER          15 par défaut, de 1 à 15
+--users-per-branch INTEGER  3 par défaut, strictement positif
+--seed INTEGER              42 par défaut
+--dry-run                   validation sans écriture
+```
+
+Avec le catalogue de démonstration de 40 produits, les valeurs par défaut
+produisent 15 succursales réservées, 45 common users et 600 lignes de stock.
+Les succursales commencent par `Démo Large —` et les identifiants utilisateurs
+par `demo-`, par exemple `demo-marseille-01`. Le mot de passe reste uniquement
+dans le fichier runtime privé.
+
+Toute la pagination de l’External Product API est validée avant la transaction.
+PostgreSQL reçoit seulement les SKU externes et les quantités ; aucun nom,
+prix, fournisseur ou autre détail Produit n’est copié. Environ 20 % des
+lignes restent à zéro, 20 % contiennent 1 à 5 unités et les autres 6 à 200,
+selon la graine déterministe.
+
+Une nouvelle exécution identique complète uniquement les lignes manquantes
+sûres et ne crée aucun doublon. Une donnée réservée incompatible provoque un
+rollback sans écrasement. Il n’existe volontairement ni option de reset ni
+historique de mouvements : le schéma officiel reste inchangé et les données
+manuelles ne sont jamais supprimées.
+
+Même si la commande est additive, effectuez une sauvegarde PostgreSQL avant
+de préparer une démonstration importante, selon la procédure validée de votre
+environnement. Gardez le dump et le fichier runtime hors du dépôt et ne
+recopiez aucune URL privée dans une preuve.
+
 ## Accès et contrôles de santé
 
 - Backoffice : `http://127.0.0.1:8080`
@@ -199,6 +267,17 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider integration_t
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider tests/test_stock_mcp_repository.py tests/test_stock_mcp_tools.py tests/test_stock_mcp_server.py
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider integration_tests/test_stock_mcp_server.py
 ```
+
+Les tests propres au grand seed s’exécutent séparément :
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q -p no:cacheprovider \
+  backoffice/tests/test_large_seed.py \
+  backoffice/tests/test_large_seed_postgresql.py
+```
+
+Le second fichier utilise la fixture PostgreSQL protégée et est ignoré si
+`TEST_DATABASE_URL` ne désigne pas une base ou un schéma de test explicite.
 
 Les résultats datés et expurgés de P3-T06 sont indexés dans
 `docs/test_evidence/README.md`. Le transcript manuel Product MCP reste une

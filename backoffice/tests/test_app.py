@@ -48,6 +48,15 @@ def test_application_registers_expected_route_groups(app):
     )
 
 
+def test_application_registers_large_seed_command(app):
+    """The independent large seed is available without replacing seed."""
+    commands = app.cli.list_commands(app.test_cli_runner())
+
+    assert "seed" in commands
+    assert "seed-large" in commands
+    assert "admin-password" in commands
+
+
 @pytest.mark.parametrize("key", ["JWT_SECRET_KEY", "DATABASE_URL"])
 def test_create_app_rejects_runtime_placeholder_before_database_use(monkeypatch, key):
     monkeypatch.setenv("JWT_SECRET_KEY", "real-jwt-secret")

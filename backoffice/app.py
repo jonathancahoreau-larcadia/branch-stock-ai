@@ -57,9 +57,11 @@ def create_app(test_config: dict | None = None) -> Flask:
     register_api_error_handlers(app)
 
     from .database.admin_password import admin_password_command
+    from .database.large_seed import seed_large_command
     from .database.seed import seed_command
 
     app.cli.add_command(seed_command)
+    app.cli.add_command(seed_large_command)
     app.cli.add_command(admin_password_command)
 
     app.register_blueprint(health_blueprint)

@@ -109,6 +109,34 @@ All mandatory services must be running.
 - negative stock is rejected;
 - blocklist `jti` is unique.
 
+### Grand seed de démonstration
+
+Le seed minimal de démarrage et `flask --app backoffice seed-large` restent
+deux commandes indépendantes. Les tests du grand seed vérifient :
+
+- les valeurs par défaut et les options personnalisées ;
+- la limite de 15 succursales et les entiers strictement positifs ;
+- le refus de tout environnement autre que `development`, `local`, `demo`
+  ou `test` ;
+- le refus d’un mot de passe absent, factice ou supérieur à 72 octets UTF-8,
+  sans fuite de valeur ;
+- le dry-run sans écriture ;
+- la pagination complète de l’External Product API, avec erreur intermédiaire
+  et doublons refusés ;
+- le déterminisme logique de la graine 42 ;
+- les nombres de succursales, common users et couples stock attendus ;
+- l’absence de détails Produit en PostgreSQL ;
+- les quantités non négatives et la présence de lignes à zéro ;
+- l’idempotence, la complétion sûre et les conflits sans écrasement ;
+- la conservation de l’admin, du petit seed et des données manuelles ;
+- le rollback complet sur erreur.
+
+Les transports Produit sont toujours remplacés par des doubles. Les tests
+transactionnels utilisent `clean_postgres_app` lorsque `TEST_DATABASE_URL`
+désigne explicitement une base ou un schéma de test ; sinon ils sont marqués
+comme ignorés. Aucun reset et aucun historique de mouvements ne font partie
+de cette commande.
+
 ---
 
 ## 6. Stock Tests
