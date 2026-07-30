@@ -119,8 +119,17 @@ class QuestionService:
         normalized_question = question.strip()
 
         fallback_code = "AI_PROVIDER_UNAVAILABLE"
-        intent: dict[str, object] | None = None
-        if self._ollama_enabled:
+        deterministic_intent = self._fallback_intent(normalized_question)
+        intent = (
+            deterministic_intent
+            if (
+                deterministic_intent is not None
+                and deterministic_intent["question_type"] != "unsupported"
+            )
+            else None
+        )
+
+        if intent is None and self._ollama_enabled:
             try:
                 candidate = await self._ollama_client.generate_intent(
                     normalized_question
@@ -130,10 +139,15 @@ class QuestionService:
                     fallback_code = "UPSTREAM_TIMEOUT"
             else:
                 if self._is_valid_intent(candidate):
-                    intent = candidate
+                    if candidate["question_type"] != "unsupported":
+                        intent = candidate
+                    elif deterministic_intent is not None:
+                        intent = deterministic_intent
+                    else:
+                        intent = candidate
 
         if intent is None:
-            intent = self._fallback_intent(normalized_question)
+            intent = deterministic_intent
             if intent is None:
                 raise QuestionServiceError(
                     fallback_code, _ERROR_MESSAGES[fallback_code]
