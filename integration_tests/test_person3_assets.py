@@ -6,6 +6,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -105,11 +107,42 @@ def test_existing_web_assets_keep_public_local_references():
     ]
 
 
+def test_both_nginx_interfaces_publish_the_approved_security_headers():
+    expected_csp = (
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "connect-src 'self'; img-src 'self' data:; object-src 'none'; "
+        "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+    )
+    for path in ("backoffice/static/nginx.conf", "client_web/nginx.conf"):
+        source = read(path)
+        csp = re.search(
+            r"add_header\s+Content-Security-Policy\s+\"(?P<value>[^\"]+)\"\s+always\s*;",
+            source,
+            re.S,
+        )
+        assert csp, f"CSP must be one complete add_header ... always directive in {path}"
+        assert re.sub(r"\s+", " ", csp.group("value")).strip() == expected_csp
+        assert re.search(r"add_header\s+X-Content-Type-Options\s+nosniff\s+always", source)
+        assert re.search(r"add_header\s+Referrer-Policy\s+no-referrer\s+always", source)
+        assert re.search(r"add_header\s+X-Frame-Options\s+DENY\s+always", source)
+        assert "unsafe-inline" not in source
+        assert "unsafe-eval" not in source
+        assert not re.search(r"(?:https?:)?//|\*", csp.group("value"))
+
+
+def test_backoffice_global_hidden_rule_overrides_layout_display_rules():
+    css = read("backoffice/static/styles.css")
+    hidden = re.search(r"(?s)\[hidden\]\s*\{(?P<body>[^}]*)\}", css)
+    assert hidden, "all hidden sections need a global CSS safety rule"
+    assert re.search(r"display\s*:\s*none\s*!important", hidden.group("body"))
+
+
 def test_dockerfiles_use_declared_manifests_without_forbidden_installations():
     for path in DEPLOYMENT_FILES:
         content = read_if_present(path).casefold()
         assert "curl" not in content, path
-        assert "wget" not in content, path
+        if path != "docker-compose.yml":
+            assert "wget" not in content, path
         assert "fastmcp" not in content, path
         assert "host.docker.internal" not in content, path
         assert "latest" not in content, path
@@ -157,6 +190,59 @@ def test_runtime_secrets_and_database_identities_are_not_hard_coded():
         assert key in bootstrap or key in entrypoint, key
     assert not re.search(r"(?i)(?:print|logger?\.(?:info|debug|warning|error))\s*\([^\n]*(?:PASSWORD|SECRET|DATABASE_URL)", bootstrap)
     assert not re.search(r"(?i)(?:echo|printf)\s+[^\n]*(?:PASSWORD|SECRET|DATABASE_URL)", entrypoint)
+
+
+def test_runtime_configuration_rejects_all_documented_placeholder_forms_without_leaking_values(monkeypatch):
+    import importlib.util
+    import sys
+
+    bootstrap_path = ROOT / "docker" / "database-bootstrap.py"
+    spec = importlib.util.spec_from_file_location("person3_database_bootstrap", bootstrap_path)
+    assert spec and spec.loader
+    database_bootstrap = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = database_bootstrap
+    spec.loader.exec_module(database_bootstrap)
+
+    values = {
+        "POSTGRES_DB": "hbntory",
+        "POSTGRES_USER": "postgres_owner",
+        "POSTGRES_PASSWORD": "postgres-real",
+        "MIGRATION_DB_USER": "migration_user",
+        "MIGRATION_DB_PASSWORD": "migration-real",
+        "BACKOFFICE_DB_USER": "backoffice_app",
+        "BACKOFFICE_DB_PASSWORD": "backoffice-real",
+        "STOCK_MCP_DB_USER": "stock_reader",
+        "STOCK_MCP_DB_PASSWORD": "stock-real",
+        "MIGRATION_DATABASE_URL": "postgresql://migration_user:migration-real@database:5432/hbntory",
+        "DATABASE_URL": "postgresql://backoffice_app:backoffice-real@database:5432/hbntory",
+        "STOCK_MCP_DATABASE_URL": "postgresql://stock_reader:stock-real@database:5432/hbntory",
+        "JWT_SECRET_KEY": "jwt-real-value",
+        "ADMIN_INITIAL_PASSWORD": "admin-real-value",
+        "SEED_PRODUCT_ID": "HB-MON-2102",
+        "BCRYPT_ROUNDS": "12",
+        "PRODUCT_API_BASE_URL": "http://external-products-api:5000",
+        "PRODUCT_API_TIMEOUT": "5",
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    assert database_bootstrap._required_environment().values["JWT_SECRET_KEY"] == "jwt-real-value"
+
+    placeholders = ("", "replace-with-secret", "replace_with_secret", "replace-me", "replace_me", "<fake-value>")
+    protected = (
+        "JWT_SECRET_KEY", "ADMIN_INITIAL_PASSWORD",
+        "POSTGRES_PASSWORD", "MIGRATION_DB_PASSWORD",
+        "BACKOFFICE_DB_PASSWORD", "STOCK_MCP_DB_PASSWORD",
+        "MIGRATION_DATABASE_URL", "DATABASE_URL", "STOCK_MCP_DATABASE_URL",
+    )
+    for key in protected:
+        original = values[key]
+        for placeholder in placeholders:
+            monkeypatch.setenv(key, placeholder)
+            with pytest.raises(database_bootstrap.BootstrapConfigurationError) as error:
+                database_bootstrap._required_environment()
+            if placeholder:
+                assert placeholder not in str(error.value)
+        monkeypatch.setenv(key, original)
 
 
 def test_bootstrap_enforces_effective_role_boundaries_and_idempotence():

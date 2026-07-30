@@ -25,6 +25,13 @@ n’est pas rejouée ici et aucun log brut n’est recopié.
 | Catégorie | Preuve | État |
 |---|---|---|
 | Tests automatisés sans réseau réel, neuf processus pytest | `docs/test_evidence/P3-T06_FINAL_VALIDATION.md` | consigné par SAM, à vérifier indépendamment par Thomas |
+| Correction finale de conformité, neuf groupes pytest + suite complète | `docs/test_evidence/COMPLIANCE_FIX_FINAL_VALIDATION.md` | validée par Thomas ; aucun réseau réel ni daemon Docker |
+
+Résultats exacts de cette correction : groupes 1–9 avec respectivement `8`,
+`15`, `67`, `87`, `486`, `65`, `14`, `129` et `26` tests réussis ; la suite
+complète avec `--import-mode=importlib` compte `1119 passed, 42 skipped,
+1 warning`. Les commandes et leurs codes retour sont détaillés dans le
+rapport lié ci-dessus.
 | Transcript manuel Product MCP sans réseau réel | `docs/test_evidence/P3-T06_PRODUCT_MCP_MANUAL.md` | quatre scénarios observés et conformes |
 | Index des preuves | `docs/test_evidence/README.md` | présent |
 | Vérification humaine du README | `person3_handoffs/current/HUMAN_APPROVAL.md` | effectuée et approuvée par le responsable unique |

@@ -12,10 +12,18 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 import psycopg
 from psycopg import sql
+
+
+_APPLICATION_ROOT = str(Path(__file__).resolve().parents[1])
+if _APPLICATION_ROOT not in sys.path:
+    sys.path.insert(0, _APPLICATION_ROOT)
+
+from backoffice.config import validate_runtime_value
 
 
 ROLE_NAMES = {
@@ -66,6 +74,22 @@ def _required_environment() -> Configuration:
                 f"Required runtime variable is missing: {key}"
             )
         values[key] = value
+
+    for key in (
+        "JWT_SECRET_KEY",
+        "ADMIN_INITIAL_PASSWORD",
+        "POSTGRES_PASSWORD",
+        "MIGRATION_DB_PASSWORD",
+        "BACKOFFICE_DB_PASSWORD",
+        "STOCK_MCP_DB_PASSWORD",
+        "MIGRATION_DATABASE_URL",
+        "DATABASE_URL",
+        "STOCK_MCP_DATABASE_URL",
+    ):
+        try:
+            values[key] = validate_runtime_value(key, values[key])
+        except RuntimeError as exc:
+            raise BootstrapConfigurationError(str(exc)) from None
 
     for key, expected in ROLE_NAMES.items():
         if values[key] != expected:
@@ -379,7 +403,13 @@ def main() -> int:
             _run_migration(config)
             _apply_runtime_grants(connection, config)
             _run_seed(config)
-    except (BootstrapConfigurationError, psycopg.Error, subprocess.SubprocessError):
+    except BootstrapConfigurationError as exc:
+        print(
+            f"Backoffice database initialization failed: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    except (psycopg.Error, subprocess.SubprocessError):
         print("Backoffice database initialization failed.", file=sys.stderr)
         return 1
 

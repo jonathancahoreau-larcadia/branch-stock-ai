@@ -19,6 +19,30 @@ def envelope(data, *, status="success"):
     return {"status": status, "data": data}
 
 
+def public_product_detail(external_product_id="product-1", name="Widget"):
+    """Complete public Product API detail payload used by success fixtures."""
+    return {
+        "external_product_id": external_product_id,
+        "name": name,
+        "description": "A public catalogue product.",
+        "category": "demo",
+        "brand": "HB",
+        "supplier": {
+            "id": "supplier-demo",
+            "name": "HB Supply",
+            "country": "UY",
+            "lead_time_days": 4,
+            "reliability_score": 0.97,
+        },
+        "unit_price": 100.0,
+        "currency": "USD",
+        "discontinued": False,
+        "weight_kg": 1.0,
+        "tags": ["demo"],
+        "updated_at": "2026-07-30T00:00:00Z",
+    }
+
+
 class FakeProviderError(RuntimeError):
     def __init__(self, code, message="safe"):
         super().__init__(message)
@@ -121,6 +145,291 @@ def test_public_surface_and_async_signature_are_stable():
         "question",
     ]
     assert inspect.iscoroutinefunction(module.QuestionService.answer_question)
+
+
+def test_french_fallback_question_is_classified_and_answered_without_ollama(
+    monkeypatch,
+):
+    module = module_under_test()
+    mcp = FakeMCP(
+        {
+            ("product", "get_product_details"): envelope(
+                public_product_detail("HB-MON-2102", "Écran compact")
+            )
+        }
+    )
+    service = module.QuestionService(mcp, ollama_enabled=False)
+
+    result = run(service.answer_question("Donne-moi les détails du produit HB-MON-2102."))
+
+    assert result["status"] == "success"
+    assert result["data"]["question_type"] == "product_details"
+    assert "HB-MON-2102" in result["answer"]
+    assert "Produit" in result["answer"] or "produit" in result["answer"]
+    assert "Product " not in result["answer"]
+    assert mcp.calls == [
+        ("product", "get_product_details", {"external_product_id": "HB-MON-2102"})
+    ]
+
+
+def test_french_anaphora_never_invents_a_product_identifier():
+    module = module_under_test()
+    mcp = FakeMCP()
+    service = module.QuestionService(mcp, ollama_enabled=False)
+
+    result = run(service.answer_question("Quelle agence possède ce produit ?"))
+
+    assert result["status"] in {"unsupported", "unavailable"}
+    assert mcp.calls == []
+
+
+def test_public_service_never_reformulates_with_ollama_even_when_enabled(monkeypatch):
+    module = module_under_test()
+    mcp = FakeMCP(
+        {
+            ("product", "get_product_details"): envelope(
+                public_product_detail("product-123", "Écran compact")
+            )
+        }
+    )
+    ollama = FakeOllama(
+        intent={
+            "question_type": "product_details",
+            "parameters": {"product": "product-123"},
+        },
+        reformulated="hallucinated answer",
+    )
+    service = module.QuestionService(mcp, ollama_client=ollama, ollama_enabled=True)
+
+    result = run(service.answer_question("Give me the details of product product-123."))
+
+    assert result["status"] == "success"
+    assert "hallucinated answer" not in result["answer"]
+    assert ollama.reformulation_calls == []
+
+
+@pytest.mark.parametrize(
+    ("question", "expected_type", "expected_calls"),
+    [
+        (
+            "DONNE-MOI les détails du produit HB-MON-2102 !!!",
+            "product_details",
+            [("product", "get_product_details", {"external_product_id": "HB-MON-2102"})],
+        ),
+        (
+            "Dans quelle succursale reste-t-il du produit HB-MON-2102 ?",
+            "product_availability",
+            [
+                ("product", "get_product_details", {"external_product_id": "HB-MON-2102"}),
+                ("stock", "get_stock_for_product", {"external_product_id": "HB-MON-2102"}),
+            ],
+        ),
+        (
+            "Quels produits sont disponibles dans la succursale 2 ?",
+            "branch_inventory",
+            [
+                ("product", "list_products", None),
+                ("stock", "list_branch_stock", {"branch_id": 2}),
+            ],
+        ),
+        (
+            "OÙ trouver 2 unités de HB-MON-2102 et 3 unités de HB-KEY-1001 ?",
+            "shopping_list",
+            [
+                ("product", "list_products", None),
+                (
+                    "stock",
+                    "find_branches_for_shopping_list",
+                    {
+                        "items": [
+                            {"external_product_id": "HB-MON-2102", "quantity": 2},
+                            {"external_product_id": "HB-KEY-1001", "quantity": 3},
+                        ]
+                    },
+                ),
+            ],
+        ),
+    ],
+)
+def test_french_public_service_covers_all_four_families_without_reformulation(
+    question, expected_type, expected_calls
+):
+    module = module_under_test()
+    mcp = FakeMCP(
+        {
+            ("product", "list_products"): envelope(
+                {"products": [
+                    {"external_product_id": "HB-MON-2102", "name": "Écran compact"},
+                    {"external_product_id": "HB-KEY-1001", "name": "Clavier compact"},
+                ]}
+            ),
+            ("product", "get_product_details"): envelope(
+                public_product_detail("HB-MON-2102", "Écran compact")
+            ),
+            ("stock", "get_stock_for_product"): envelope(
+                {
+                    "external_product_id": "HB-MON-2102",
+                    "branches": [{"branch_id": 2, "branch_name": "Toulon", "quantity": 4}],
+                }
+            ),
+            ("stock", "list_branch_stock"): envelope(
+                {
+                    "branch_id": 2,
+                    "branch_name": "Toulon",
+                    "stocks": [{"external_product_id": "HB-MON-2102", "quantity": 4}],
+                }
+            ),
+            ("stock", "find_branches_for_shopping_list"): envelope(
+                {
+                    "complete": True,
+                    "strategy": "single_branch",
+                    "visits": [
+                        {
+                            "branch_id": 2,
+                            "branch_name": "Toulon",
+                            "items": [
+                                {
+                                    "external_product_id": "HB-MON-2102",
+                                    "requested_quantity": 2,
+                                    "available_quantity": 4,
+                                },
+                                {
+                                    "external_product_id": "HB-KEY-1001",
+                                    "requested_quantity": 3,
+                                    "available_quantity": 3,
+                                },
+                            ],
+                        }
+                    ],
+                    "missing_items": [],
+                }
+            ),
+        }
+    )
+    ollama = FakeOllama(intent={"question_type": "unsupported", "parameters": {}})
+    result = run(module.QuestionService(mcp, ollama_client=ollama, ollama_enabled=False).answer_question(question))
+
+    assert result["data"]["question_type"] == expected_type
+    assert result["status"] == "success"
+    assert mcp.calls == expected_calls
+    assert result["answer"]
+    assert "Product " not in result["answer"]
+    assert "product-1" not in result["answer"]
+    assert ollama.reformulation_calls == []
+
+
+@pytest.mark.parametrize(
+    ("question", "expected_status"),
+    [
+        ("Parle-moi de la météo.", "unsupported"),
+        ("Donne-moi les détails du produit HB-MON-2102.", "unavailable"),
+    ],
+)
+def test_french_public_service_keeps_deterministic_unavailable_and_unsupported_statuses(
+    question, expected_status
+):
+    module = module_under_test()
+    mcp = FakeMCP({("product", "get_product_details"): envelope(None, status="error")})
+    result = run(module.QuestionService(mcp, ollama_enabled=False).answer_question(question))
+    assert result["status"] == expected_status
+    assert result["answer"]
+
+
+def test_english_public_service_keeps_the_english_deterministic_surface():
+    module = module_under_test()
+    mcp = FakeMCP(
+        {
+            ("product", "get_product_details"): envelope(
+                public_product_detail("HB-MON-2102", "Compact Monitor")
+            )
+        }
+    )
+    result = run(
+        module.QuestionService(mcp, ollama_enabled=False).answer_question(
+            "Give me the details of product HB-MON-2102."
+        )
+    )
+    assert result["status"] == "success"
+    assert "HB-MON-2102" in result["answer"]
+    assert "Product" in result["answer"]
+    assert "Produit" not in result["answer"]
+
+
+@pytest.mark.parametrize(
+    ("question", "mcp", "expected_status", "expected_message"),
+    [
+        (
+            "Parle-moi de la météo, s’il te plaît !",
+            FakeMCP(),
+            "unsupported",
+            "Cette question ne fait pas partie du périmètre d’inventaire pris en charge.",
+        ),
+        (
+            "Donne-moi les détails du produit HB-MON-2102.",
+            FakeMCP({("product", "get_product_details"): envelope(None, status="error")}),
+            "unavailable",
+            "Je ne dispose pas d’assez d’informations pour répondre à cette question.",
+        ),
+    ],
+)
+def test_french_public_service_uses_exact_safe_status_messages(
+    question, mcp, expected_status, expected_message
+):
+    module = module_under_test()
+    result = run(module.QuestionService(mcp, ollama_enabled=False).answer_question(question))
+    assert result["status"] == expected_status
+    assert result["answer"] == expected_message
+
+
+def test_french_public_service_reports_no_positive_stock_without_leaking_zero_rows():
+    module = module_under_test()
+    mcp = FakeMCP(
+        {
+            ("product", "get_product_details"): envelope(
+                public_product_detail("HB-MON-2102", "Écran compact")
+            ),
+            ("stock", "get_stock_for_product"): envelope(
+                {
+                    "external_product_id": "HB-MON-2102",
+                    "branches": [
+                        {"branch_id": 2, "branch_name": "Toulon", "quantity": 0}
+                    ],
+                }
+            ),
+        }
+    )
+    result = run(
+        module.QuestionService(mcp, ollama_enabled=False).answer_question(
+            "Dans quelle succursale reste-t-il du HB-MON-2102 ?"
+        )
+    )
+    assert result["status"] == "success"
+    assert result["answer"] == (
+        "Le produit Écran compact (HB-MON-2102) n’est disponible dans aucune succursale."
+    )
+    assert "Toulon" not in result["answer"]
+
+
+def test_french_public_service_localizes_partial_grounding_message(monkeypatch):
+    module = module_under_test()
+    mcp = FakeMCP(
+        {
+            ("product", "list_products"): envelope(
+                {"products": [{"external_product_id": "HB-MON-2102", "name": "Écran compact"}]}
+            ),
+            ("stock", "list_branch_stock"): envelope(None, status="error"),
+        }
+    )
+    result = run(
+        module.QuestionService(mcp, ollama_enabled=False).answer_question(
+            "Quels produits sont disponibles dans la succursale 2 ?"
+        )
+    )
+    assert result["status"] == "partial"
+    assert result["answer"] == (
+        "Certaines informations MCP sont disponibles, mais elles ne suffisent pas "
+        "pour fournir une réponse complète et vérifiable."
+    )
 
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", "On"])
@@ -258,8 +567,8 @@ def test_question_validation_is_stable_and_precedes_any_backend_call(question):
                     "find_branches_for_shopping_list",
                     {
                         "items": [
-                            {"external_product_id": "product-1", "requested_quantity": 2},
-                            {"external_product_id": "product-2", "requested_quantity": 3},
+                            {"external_product_id": "product-1", "quantity": 2},
+                            {"external_product_id": "product-2", "quantity": 3},
                         ]
                     },
                 ),
@@ -283,7 +592,7 @@ def test_supported_intents_use_exact_sequential_read_only_mcp_calls(
     mcp = FakeMCP(
         {
             ("product", "list_products"): products,
-            ("product", "get_product_details"): envelope({"external_product_id": "product-1", "name": "Widget"}),
+            ("product", "get_product_details"): envelope(public_product_detail()),
             ("stock", "get_stock_for_product"): envelope({"external_product_id": "product-1", "branches": []}),
             ("stock", "list_branch_stock"): envelope({"branch_id": 7, "branch_name": "Central", "stocks": []}),
             ("stock", "find_branches_for_shopping_list"): envelope({"complete": True, "visits": []}),
@@ -301,10 +610,7 @@ def test_supported_intents_use_exact_sequential_read_only_mcp_calls(
     assert len(calls) == 1
     assert result["status"] == deterministic["status"]
     assert result["data"] is deterministic["data"]
-    if question_type == "unsupported":
-        assert ollama.reformulation_calls == []
-    else:
-        assert len(ollama.reformulation_calls) == 1
+    assert ollama.reformulation_calls == []
 
 
 def test_product_resolution_is_casefolded_and_deduplicates_id_and_name_match(monkeypatch):
@@ -319,7 +625,7 @@ def test_product_resolution_is_casefolded_and_deduplicates_id_and_name_match(mon
                     ]
                 }
             ),
-            ("product", "get_product_details"): envelope({"external_product_id": "product-1", "name": "Café Widget"}),
+            ("product", "get_product_details"): envelope(public_product_detail("product-1", "Café Widget")),
         }
     )
     ollama = FakeOllama(
@@ -336,7 +642,7 @@ def test_product_resolution_is_casefolded_and_deduplicates_id_and_name_match(mon
         ("product", "get_product_details", {"external_product_id": "product-1"}),
     ]
     assert calls[0][1] == {
-        "get_product_details": envelope({"external_product_id": "product-1", "name": "Café Widget"})
+        "get_product_details": envelope(public_product_detail("product-1", "Café Widget"))
     }
 
 
@@ -391,8 +697,8 @@ def test_product_resolution_is_casefolded_and_deduplicates_id_and_name_match(mon
                     "find_branches_for_shopping_list",
                     {
                         "items": [
-                            {"external_product_id": "product-1", "requested_quantity": 2},
-                            {"external_product_id": "product-2", "requested_quantity": 3},
+                            {"external_product_id": "product-1", "quantity": 2},
+                            {"external_product_id": "product-2", "quantity": 3},
                         ]
                     },
                 ),
@@ -504,7 +810,7 @@ def test_direct_product_resolution_requires_the_exact_external_id_shape(
         {
             ("product", "list_products"): products,
             ("product", "get_product_details"): envelope(
-                {"external_product_id": reference, "name": "Widget"}
+                public_product_detail(reference, "Widget")
             ),
         }
     )
@@ -560,7 +866,7 @@ def test_unknown_or_ambiguous_product_stops_downstream_calls_without_invention(
 
 def test_invalid_intent_uses_deterministic_fallback_and_never_reformulates(monkeypatch):
     module = module_under_test()
-    mcp = FakeMCP({("product", "get_product_details"): envelope({"external_product_id": "product-1", "name": "Widget"})})
+    mcp = FakeMCP({("product", "get_product_details"): envelope(public_product_detail())})
     ollama = FakeOllama(
         intent={"question_type": "product_details", "parameters": {"product": ""}},
         reformulated="must not be used",
@@ -604,8 +910,8 @@ def test_invalid_intent_uses_deterministic_fallback_and_never_reformulates(monke
                     "find_branches_for_shopping_list",
                     {
                         "items": [
-                            {"external_product_id": "product-1", "requested_quantity": 2},
-                            {"external_product_id": "product-2", "requested_quantity": 3},
+                            {"external_product_id": "product-1", "quantity": 2},
+                            {"external_product_id": "product-2", "quantity": 3},
                         ]
                     },
                 ),
@@ -620,8 +926,8 @@ def test_invalid_intent_uses_deterministic_fallback_and_never_reformulates(monke
                     "find_branches_for_shopping_list",
                     {
                         "items": [
-                            {"external_product_id": "product-1", "requested_quantity": 2},
-                            {"external_product_id": "product-2", "requested_quantity": 3},
+                            {"external_product_id": "product-1", "quantity": 2},
+                            {"external_product_id": "product-2", "quantity": 3},
                         ]
                     },
                 ),
@@ -636,8 +942,8 @@ def test_invalid_intent_uses_deterministic_fallback_and_never_reformulates(monke
                     "find_branches_for_shopping_list",
                     {
                         "items": [
-                            {"external_product_id": "product-1", "requested_quantity": 2},
-                            {"external_product_id": "product-2", "requested_quantity": 3},
+                            {"external_product_id": "product-1", "quantity": 2},
+                            {"external_product_id": "product-2", "quantity": 3},
                         ]
                     },
                 ),
@@ -652,8 +958,8 @@ def test_invalid_intent_uses_deterministic_fallback_and_never_reformulates(monke
                     "find_branches_for_shopping_list",
                     {
                         "items": [
-                            {"external_product_id": "product-1", "requested_quantity": 2},
-                            {"external_product_id": "product-2", "requested_quantity": 3},
+                            {"external_product_id": "product-1", "quantity": 2},
+                            {"external_product_id": "product-2", "quantity": 3},
                         ]
                     },
                 ),
@@ -676,7 +982,7 @@ def test_provider_failure_uses_each_exact_deterministic_fallback_grammar(
     mcp = FakeMCP(
         {
             ("product", "list_products"): products,
-            ("product", "get_product_details"): envelope({"external_product_id": "product-1", "name": "Widget"}),
+            ("product", "get_product_details"): envelope(public_product_detail()),
             ("stock", "get_stock_for_product"): envelope({"external_product_id": "product-1", "branches": []}),
             ("stock", "list_branch_stock"): envelope({"branch_id": 7, "branch_name": "Central", "stocks": []}),
             ("stock", "find_branches_for_shopping_list"): envelope({"complete": True, "visits": []}),
@@ -788,28 +1094,6 @@ def test_fallback_failure_preserves_official_provider_error_code_and_makes_no_mc
     assert not mcp.calls
 
 
-def test_reformulation_is_called_once_only_for_supported_success_and_preserves_data(monkeypatch):
-    module = module_under_test()
-    mcp = FakeMCP({("product", "get_product_details"): envelope({"external_product_id": "product-1", "name": "Widget"})})
-    grounded_data = {"product_id": "product-1", "quantity": 4}
-    ollama = FakeOllama(
-        intent={"question_type": "product_details", "parameters": {"product": "product-1"}},
-        reformulated="Here product product-1 has stock.",
-    )
-    _, deterministic = install_grounding_spy(
-        monkeypatch,
-        module,
-        status="success",
-        answer="Product product-1 has stock.",
-        data=grounded_data,
-    )
-    result = run(make_service(module, mcp, ollama).answer_question("question"))
-    assert result["answer"] == "Here product product-1 has stock."
-    assert result["status"] == deterministic["status"]
-    assert result["data"] is deterministic["data"]
-    assert len(ollama.reformulation_calls) == 1
-
-
 @pytest.mark.parametrize("status", ["unavailable", "unsupported"])
 def test_unavailable_or_unsupported_never_invokes_second_ollama_call(monkeypatch, status):
     module = module_under_test()
@@ -821,185 +1105,6 @@ def test_unavailable_or_unsupported_never_invokes_second_ollama_call(monkeypatch
     install_grounding_spy(monkeypatch, module, status=status, answer="No data.")
     run(make_service(module, mcp, ollama).answer_question("unrelated question"))
     assert ollama.reformulation_calls == []
-
-
-def test_invalid_reformulation_is_rejected_without_changing_status_or_data(monkeypatch):
-    module = module_under_test()
-    mcp = FakeMCP({("product", "get_product_details"): envelope({"external_product_id": "product-1", "name": "Widget"})})
-    ollama = FakeOllama(
-        intent={"question_type": "product_details", "parameters": {"product": "product-1"}},
-        reformulated="Product product-1 has no stock.",
-    )
-    _, deterministic = install_grounding_spy(
-        monkeypatch,
-        module,
-        status="partial",
-        answer="Product product-1 has stock.",
-        data={"product_id": "product-1", "quantity": 4},
-    )
-    result = run(make_service(module, mcp, ollama).answer_question("question"))
-    assert result["answer"] == deterministic["answer"]
-    assert result["status"] == deterministic["status"]
-    assert result["data"] is deterministic["data"]
-
-
-def test_reformulation_failure_keeps_deterministic_answer(monkeypatch):
-    module = module_under_test()
-    mcp = FakeMCP({("product", "get_product_details"): envelope({"external_product_id": "product-1", "name": "Widget"})})
-    error = FakeProviderError("AI_PROVIDER_UNAVAILABLE", "safe")
-    ollama = FakeOllama(
-        intent={"question_type": "product_details", "parameters": {"product": "product-1"}},
-        reformulation_error=error,
-    )
-    _, deterministic = install_grounding_spy(monkeypatch, module)
-    result = run(make_service(module, mcp, ollama).answer_question("question"))
-    assert result == deterministic
-
-
-def test_reformulation_accepts_only_closed_surface_tokens_around_the_same_sequence(
-    monkeypatch,
-):
-    module = module_under_test()
-    mcp = FakeMCP(
-        {
-            ("product", "get_product_details"): envelope(
-                {"external_product_id": "product-1", "name": "Widget"}
-            )
-        }
-    )
-    reformulated = "Voici la réponse: Product product-1 has stock."
-    ollama = FakeOllama(
-        intent={
-            "question_type": "product_details",
-            "parameters": {"product": "product-1"},
-        },
-        reformulated=reformulated,
-    )
-    _, deterministic = install_grounding_spy(
-        monkeypatch,
-        module,
-        answer="Product product-1 has stock.",
-        data={"external_product_id": "product-1"},
-    )
-
-    result = run(make_service(module, mcp, ollama).answer_question("question"))
-
-    assert result["answer"] == reformulated
-    assert result["status"] == deterministic["status"]
-    assert result["data"] is deterministic["data"]
-
-
-@pytest.mark.parametrize(
-    ("deterministic_answer", "reformulated"),
-    [
-        (
-            "Branch Paris has product-1 requested quantity 2 available quantity 5; "
-            "Branch Lyon has product-2 requested quantity 3 available quantity 4.",
-            "Branch Paris has product-1 requested quantity 3 available quantity 4; "
-            "Branch Lyon has product-2 requested quantity 2 available quantity 5."
-        ),
-        (
-            "Product product-1 requested quantity 2 available quantity 5.",
-            "Product product-1 requested quantity 5 available quantity 2.",
-        ),
-        (
-            "Product Widget has identifier product-1. Product Gadget has identifier product-2.",
-            "Product Widget has identifier product-2. Product Gadget has identifier product-1.",
-        ),
-        (
-            "Product product-1 has stock.",
-            "Product product-1 has stock stock.",
-        ),
-    ],
-)
-def test_reformulation_rejects_permuted_or_added_semantic_occurrences(
-    monkeypatch, deterministic_answer, reformulated
-):
-    module = module_under_test()
-    mcp = FakeMCP(
-        {
-            ("product", "get_product_details"): envelope(
-                {"external_product_id": "product-1", "name": "Widget"}
-            )
-        }
-    )
-    ollama = FakeOllama(
-        intent={
-            "question_type": "product_details",
-            "parameters": {"product": "product-1"},
-        },
-        reformulated=reformulated,
-    )
-    _, deterministic = install_grounding_spy(
-        monkeypatch,
-        module,
-        answer=deterministic_answer,
-        data={"branches": ["Paris", "Lyon"]},
-    )
-
-    result = run(make_service(module, mcp, ollama).answer_question("question"))
-
-    assert result == deterministic
-
-
-@pytest.mark.parametrize(
-    "reformulated",
-    [
-        "",
-        "Product product-1 has",
-        "Product product-1 has stock invented",
-    ],
-)
-def test_reformulation_rejects_empty_missing_or_unknown_surface(
-    monkeypatch, reformulated
-):
-    module = module_under_test()
-    mcp = FakeMCP(
-        {
-            ("product", "get_product_details"): envelope(
-                {"external_product_id": "product-1", "name": "Widget"}
-            )
-        }
-    )
-    ollama = FakeOllama(
-        intent={
-            "question_type": "product_details",
-            "parameters": {"product": "product-1"},
-        },
-        reformulated=reformulated,
-    )
-    _, deterministic = install_grounding_spy(
-        monkeypatch, module, answer="Product product-1 has stock."
-    )
-
-    result = run(make_service(module, mcp, ollama).answer_question("question"))
-
-    assert result == deterministic
-
-
-def test_reformulation_rejects_answer_over_4000_characters(monkeypatch):
-    module = module_under_test()
-    mcp = FakeMCP(
-        {
-            ("product", "get_product_details"): envelope(
-                {"external_product_id": "product-1", "name": "Widget"}
-            )
-        }
-    )
-    ollama = FakeOllama(
-        intent={
-            "question_type": "product_details",
-            "parameters": {"product": "product-1"},
-        },
-        reformulated="Product product-1 has stock. " + ("x" * 4001),
-    )
-    _, deterministic = install_grounding_spy(
-        monkeypatch, module, answer="Product product-1 has stock."
-    )
-
-    result = run(make_service(module, mcp, ollama).answer_question("question"))
-
-    assert result == deterministic
 
 
 class RaisingMCP(FakeMCP):

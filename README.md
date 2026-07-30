@@ -39,6 +39,11 @@ schéma PostgreSQL approprié, l’hôte interne `database`, le port `5432`, le
 nom `POSTGRES_DB`, et l’identité dédiée correspondante. N’affichez jamais ce
 fichier dans un rapport ou un terminal partagé.
 
+Le bootstrap et l’API refusent au démarrage les valeurs vides ou manifestement
+factices (`replace-with-…`, `replace_me`, `<…>` et `${…}`) pour les secrets,
+les quatre mots de passe PostgreSQL et les trois URL PostgreSQL. Le message
+d’erreur nomme uniquement la variable concernée, jamais sa valeur.
+
 | Variable | Exemple factice / règle |
 |---|---|
 | `POSTGRES_DB` | `hbntory_example` |
@@ -90,9 +95,12 @@ Cette étape correspond au contrôle `docker compose config`.
 | `ai_service` | route publique de questions et orchestration MCP | `8000` interne |
 | `client_web` | interface publique Nginx et proxy vers l’IA | `3000` public par défaut |
 
-Tous partagent uniquement le réseau Docker interne
-`branch-stock-internal`. Le réseau est déclaré `internal: true`. Seuls le
-Backoffice et le Client Web publient un port sur l’hôte.
+Les huit services partagent `branch-stock-internal`, réseau déclaré
+`internal: true`. Seuls `backoffice-ui` et `client_web` rejoignent en plus le
+réseau non interne `branch-stock-public` et publient respectivement
+`127.0.0.1:${BACKOFFICE_UI_PORT:-8080}:80` et
+`127.0.0.1:${CLIENT_WEB_PORT:-3000}:80`. Aucun service métier ni PostgreSQL
+n’est publié sur l’hôte.
 
 ## Build, initialisation et lancement
 
@@ -127,6 +135,18 @@ Le seed refuse un produit absent, arrêté ou incohérent et annule sa
 transaction au lieu de laisser un état partiel. Un conflit avec des données
 initiales déjà modifiées doit être diagnostiqué, pas contourné par une
 réinitialisation.
+
+Pour remplacer ensuite le mot de passe du compte admin unique par la valeur
+privée courante de `ADMIN_INITIAL_PASSWORD`, utilisez :
+
+```bash
+docker compose --env-file "$HBN_RUNTIME_ENV_FILE" exec backoffice-api \
+  flask --app backoffice admin-password
+```
+
+La commande refuse les placeholders, réutilise bcrypt, incrémente
+`token_version` pour invalider les anciens JWT et effectue un rollback si le
+compte admin est absent ou incohérent. Elle n’affiche ni mot de passe ni hash.
 
 ## Accès et contrôles de santé
 
@@ -242,8 +262,9 @@ données préparées déjà vérifiées.
   API ;
 - les questions IA sont limitées aux détails produit, disponibilités,
   inventaires de succursale et listes d’achats documentés ;
-- Ollama est optionnel et absent du Compose ; le chemin déterministe reste le
-  comportement local par défaut ;
+- Ollama est optionnel et absent du Compose ; lorsqu’il est activé, il peut
+  proposer l’intention structurée, mais la réponse publique française ou
+  anglaise reste toujours générée localement et de manière déterministe ;
 - l’interface est volontairement simple et le projet n’est pas une
   configuration de production publique.
 

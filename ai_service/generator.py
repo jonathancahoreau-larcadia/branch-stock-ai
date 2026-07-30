@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math as _math
 import typing as _typing
 
 from ai_service.classifier import SUPPORTED_QUESTION_TYPES
@@ -44,6 +45,19 @@ def _is_integer(value: _typing.Any, *, minimum: int) -> bool:
     )
 
 
+def _is_number(
+    value: _typing.Any, *, minimum: float, maximum: float | None = None
+) -> bool:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not _math.isfinite(value)
+        or value < minimum
+    ):
+        return False
+    return maximum is None or value <= maximum
+
+
 def _project_product_details(data: _typing.Any) -> dict[str, _typing.Any] | None:
     if not isinstance(data, dict):
         return None
@@ -55,10 +69,74 @@ def _project_product_details(data: _typing.Any) -> dict[str, _typing.Any] | None
     ):
         return None
 
-    return {
+    projection: dict[str, _typing.Any] = {
         "external_product_id": external_product_id,
         "name": name,
     }
+    public_fields = {
+        "description",
+        "category",
+        "brand",
+        "supplier",
+        "unit_price",
+        "currency",
+        "discontinued",
+        "weight_kg",
+        "tags",
+        "updated_at",
+    }
+    present_fields = public_fields.intersection(data)
+    if not present_fields:
+        return projection
+    if present_fields != public_fields:
+        return None
+
+    supplier = data["supplier"]
+    tags = data["tags"]
+    if (
+        not all(
+            _is_non_empty_string(data[field])
+            for field in ("description", "category", "brand", "currency")
+        )
+        or not isinstance(supplier, dict)
+        or not all(
+            _is_non_empty_string(supplier.get(field))
+            for field in ("id", "name", "country")
+        )
+        or not _is_integer(supplier.get("lead_time_days"), minimum=0)
+        or not _is_number(
+            supplier.get("reliability_score"), minimum=0, maximum=1
+        )
+        or not _is_number(data["unit_price"], minimum=0)
+        or not isinstance(data["discontinued"], bool)
+        or not _is_number(data["weight_kg"], minimum=0)
+        or not isinstance(tags, list)
+        or not all(_is_non_empty_string(tag) for tag in tags)
+        or not _is_non_empty_string(data["updated_at"])
+    ):
+        return None
+
+    projection.update(
+        {
+            "description": data["description"],
+            "category": data["category"],
+            "brand": data["brand"],
+            "supplier": {
+                "id": supplier["id"],
+                "name": supplier["name"],
+                "country": supplier["country"],
+                "lead_time_days": supplier["lead_time_days"],
+                "reliability_score": supplier["reliability_score"],
+            },
+            "unit_price": data["unit_price"],
+            "currency": data["currency"],
+            "discontinued": data["discontinued"],
+            "weight_kg": data["weight_kg"],
+            "tags": list(tags),
+            "updated_at": data["updated_at"],
+        }
+    )
+    return projection
 
 
 def _project_list_products(data: _typing.Any) -> dict[str, _typing.Any] | None:
@@ -113,13 +191,14 @@ def _project_product_stock(data: _typing.Any) -> dict[str, _typing.Any] | None:
             or not _is_integer(quantity, minimum=0)
         ):
             return None
-        projected_branches.append(
-            {
-                "branch_id": branch_id,
-                "branch_name": branch_name,
-                "quantity": quantity,
-            }
-        )
+        if quantity > 0:
+            projected_branches.append(
+                {
+                    "branch_id": branch_id,
+                    "branch_name": branch_name,
+                    "quantity": quantity,
+                }
+            )
 
     return {
         "external_product_id": external_product_id,
@@ -321,9 +400,17 @@ def _project_successful_result(
 
 def _product_details_answer(tool_results: dict[str, dict[str, _typing.Any]]) -> str:
     product = tool_results["get_product_details"]
-    return (
+    answer = (
         f"Product {product['name']} has identifier "
         f"{product['external_product_id']}."
+    )
+    if "description" not in product:
+        return answer
+    supplier = product["supplier"]
+    return (
+        f"{answer} Category: {product['category']}; brand: {product['brand']}; "
+        f"supplier: {supplier['name']}; price: {product['unit_price']} "
+        f"{product['currency']}. Description: {product['description']}"
     )
 
 
@@ -477,6 +564,11 @@ def generate_grounded_response(
         ]
         if product_id != stock_product_id:
             del tool_results["get_stock_for_product"]
+            product = tool_results["get_product_details"]
+            tool_results["get_product_details"] = {
+                "external_product_id": product["external_product_id"],
+                "name": product["name"],
+            }
 
     if not tool_results:
         return {
@@ -508,3 +600,123 @@ def generate_grounded_response(
         answer = _branch_inventory_answer(tool_results)
 
     return _standard_response("success", answer, question_type, tool_results)
+
+
+def localize_grounded_response(
+    response: dict[str, _typing.Any], language: str
+) -> dict[str, _typing.Any]:
+    """Return a deterministic French narrative over an already-grounded response."""
+    if language != "fr":
+        return response
+
+    status = response.get("status")
+    if status == "unsupported":
+        return {
+            **response,
+            "answer": (
+                "Cette question ne fait pas partie du périmètre d’inventaire "
+                "pris en charge."
+            ),
+        }
+    if status == "unavailable":
+        return {
+            **response,
+            "answer": (
+                "Je ne dispose pas d’assez d’informations pour répondre à "
+                "cette question."
+            ),
+        }
+    if status == "partial":
+        return {
+            **response,
+            "answer": (
+                "Certaines informations MCP sont disponibles, mais elles ne "
+                "suffisent pas pour fournir une réponse complète et vérifiable."
+            ),
+        }
+    if status != "success":
+        return response
+
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return response
+    question_type = data.get("question_type")
+    tool_results = data.get("tool_results")
+    if not isinstance(tool_results, dict):
+        return response
+
+    if question_type == "product_details":
+        product = tool_results["get_product_details"]
+        answer = (
+            f"Le produit {product['name']} porte l’identifiant "
+            f"{product['external_product_id']}."
+        )
+        if "description" in product:
+            answer = (
+                f"{answer} Catégorie : {product['category']} ; marque : "
+                f"{product['brand']} ; fournisseur : "
+                f"{product['supplier']['name']} ; prix : "
+                f"{product['unit_price']} {product['currency']}. "
+                f"Description : {product['description']}"
+            )
+    elif question_type == "product_availability":
+        product = tool_results["get_product_details"]
+        branches = tool_results["get_stock_for_product"]["branches"]
+        product_label = f"{product['name']} ({product['external_product_id']})"
+        if not branches:
+            answer = (
+                f"Le produit {product_label} n’est disponible dans aucune "
+                "succursale."
+            )
+        else:
+            summaries = [
+                f"{branch['branch_name']} : quantité {branch['quantity']}"
+                for branch in branches
+            ]
+            answer = f"Stock du produit {product_label} : {' ; '.join(summaries)}."
+    elif question_type == "branch_inventory":
+        products = tool_results["list_products"]["products"]
+        branch = tool_results["list_branch_stock"]
+        names = {
+            product["external_product_id"]: product["name"]
+            for product in products
+        }
+        if not branch["stocks"]:
+            answer = (
+                f"La succursale {branch['branch_name']} ne possède aucun "
+                "stock dans l’inventaire projeté."
+            )
+        else:
+            summaries = []
+            for stock in branch["stocks"]:
+                external_id = stock["external_product_id"]
+                label = (
+                    f"{names[external_id]} ({external_id})"
+                    if external_id in names
+                    else external_id
+                )
+                summaries.append(f"{label} : quantité {stock['quantity']}")
+            answer = (
+                f"Stock de la succursale {branch['branch_name']} : "
+                f"{' ; '.join(summaries)}."
+            )
+    elif question_type == "shopping_list":
+        plan = tool_results["find_branches_for_shopping_list"]
+        visits = []
+        for visit in plan["visits"]:
+            items = [
+                (
+                    f"{item['external_product_id']} demandé "
+                    f"{item['requested_quantity']}, disponible "
+                    f"{item['available_quantity']}"
+                )
+                for item in visit["items"]
+            ]
+            visits.append(f"{visit['branch_name']} : {', '.join(items)}")
+        answer = (
+            f"Le plan d’achat est complet avec la stratégie "
+            f"{plan['strategy']}. Visites : {' ; '.join(visits)}."
+        )
+    else:
+        return response
+    return {**response, "answer": answer}

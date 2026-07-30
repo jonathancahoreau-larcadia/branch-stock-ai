@@ -74,7 +74,11 @@ def _is_json_response(response: httpx.Response) -> bool:
     return content_type.split(";", 1)[0].strip().lower() == "application/json"
 
 
-async def _get(path: str) -> dict[str, Any]:
+async def _get(
+    path: str,
+    *,
+    params: dict[str, int] | None = None,
+) -> dict[str, Any]:
     configuration = _configuration()
     if configuration is None:
         return _INVALID_CONFIGURATION
@@ -82,7 +86,7 @@ async def _get(path: str) -> dict[str, Any]:
     base_url, timeout = configuration
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(f"{base_url}{path}")
+            response = await client.get(f"{base_url}{path}", params=params)
     except httpx.TimeoutException:
         return _TIMEOUT
     except httpx.RequestError:
@@ -102,9 +106,12 @@ async def _get(path: str) -> dict[str, Any]:
     return {"status": "success", "data": payload}
 
 
-async def list_products() -> dict[str, Any]:
+async def list_products(limit: int = 100, offset: int = 0) -> dict[str, Any]:
     """Fetch one Product API page without exposing transport exceptions."""
-    return await _get("/api/v1/products")
+    return await _get(
+        "/api/v1/products",
+        params={"limit": limit, "offset": offset},
+    )
 
 
 async def get_product_details(external_product_id: str) -> dict[str, Any]:

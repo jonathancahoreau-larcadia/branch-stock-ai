@@ -251,6 +251,7 @@ global.fetch = async (value, options = {}) => {
   if (mode === "error_500" && path.endsWith("/branches")) return response(500, errorPayload("SERVER_ERROR"));
   if (mode === "error_non_json" && path.endsWith("/branches")) return response(500, {}, "<html>failure</html>");
   if (mode === "error_rejection" && path.endsWith("/branches")) throw new Error("transport unavailable");
+  if (mode === "logout_network_rejection" && path.includes("/auth/logout")) throw new Error("network unavailable");
   if (mode === "logout_failure" && path.endsWith("/auth/logout")) return response(500, errorPayload("LOGOUT_FAILED"));
   if (mode === "logout_refresh_failure" && path.endsWith("/auth/logout/refresh")) return response(500, errorPayload("LOGOUT_REFRESH_FAILED"));
   if (mode.startsWith("mutation_success") && mutation(path, method)) return response(200, { data: { id: 42, quantity: 3 } });
@@ -336,7 +337,7 @@ if (mode.startsWith("login_")) {
   const form = firstFormWith("password");
   setField(form, "username", mode.includes("common") ? "alice" : "admin"); setField(form, "password", "secret-password"); submit(form); await flush();
 }
-if (mode === "logout" || mode === "logout_failure" || mode === "logout_refresh_failure") { clickText(/déconnect|logout/i); await flush(); }
+if (["logout", "logout_failure", "logout_refresh_failure", "logout_network_rejection"].includes(mode)) { clickText(/déconnect|logout/i); await flush(); }
 if (mode.startsWith("nav_")) clickViews();
 if (mode === "user_crud") { clickText(/utilisateur|user/i); await flush();
   for (const status of ["active", "deleted", "all"]) { const form = firstFormWith("status"); if (form) { setField(form, "status", status); const branch = field(form, "branch_id"); if (branch) branch.value = status === "all" ? "" : "2"; form.dispatchEvent(event("change")); submit(form); } }
@@ -392,7 +393,7 @@ if (mode === "finish_pending") { finishPending(); await flush(); }
 
 process.stdout.write(JSON.stringify({
   calls, storage: Object.fromEntries(storage.entries()), storageKeys, confirmations,
-  messages: messages(), bodyText: textOf(document.body), visibleActions: visibleActionTexts(),
+  messages: messages(), messageValues: all().filter((item) => ["status", "alert"].includes(item.getAttribute("role"))).map(textOf), bodyText: textOf(document.body), visibleActions: visibleActionTexts(),
   applicationLogs,
   forms: forms().map((form) => Object.fromEntries(fields(form).map((item) => [item.name, item.value]))),
   formStates: forms().map((form) => ({
@@ -487,6 +488,19 @@ def test_static_assets_expose_accessible_responsive_native_structure():
     assert not re.search(r'name=["\'](?:role|password_hash|is_active|deleted_at|token_version)["\']', html, re.I)
 
 
+def test_global_hidden_rule_wins_over_grid_layout_for_role_panels():
+    css = _read("styles.css")
+    hidden = re.search(r"(?s)\[hidden\]\s*\{(?P<body>[^}]*)\}", css)
+    assert hidden and re.search(r"display\s*:\s*none\s*!important", hidden.group("body"))
+    assert re.search(r"\.?(?:panel|view)[^{]*\{[^}]*display\s*:\s*grid", css, re.S)
+
+
+def test_logout_source_requires_fulfilled_and_ok_revocation_results_before_success():
+    source = _read("app.js")
+    assert "Promise.allSettled" in source
+    assert re.search(r"allSettled[\s\S]{0,800}\.ok", source)
+
+
 def test_static_frontend_security_boundaries_are_native_and_safe():
     assets = {name: _read(name) for name in ASSETS}
     for name, source in assets.items():
@@ -576,6 +590,7 @@ def test_restore_refresh_once_failure_and_logout_are_recoverable():
     assert next(call for call in logout_calls if call["path"].endswith("/auth/logout"))["headers"].get("authorization") == "Bearer old-access"
     assert next(call for call in logout_calls if call["path"].endswith("/auth/logout/refresh"))["headers"].get("authorization") == "Bearer old-refresh"
     assert logged_out["storage"] == {}
+    assert "Vous êtes déconnecté." in logged_out["messageValues"]
     for mode in ("logout_failure", "logout_refresh_failure"):
         failed_logout = _run(mode)
         failed_calls = [call for call in failed_logout["calls"] if "/auth/logout" in call["path"]]
@@ -583,6 +598,17 @@ def test_restore_refresh_once_failure_and_logout_are_recoverable():
         assert next(call for call in failed_calls if call["path"].endswith("/auth/logout"))["headers"].get("authorization") == "Bearer old-access"
         assert next(call for call in failed_calls if call["path"].endswith("/auth/logout/refresh"))["headers"].get("authorization") == "Bearer old-refresh"
         assert failed_logout["storage"] == {}
+        assert (
+            "Déconnexion locale effectuée, mais la révocation serveur n’a pas pu être confirmée."
+            in failed_logout["messageValues"]
+        )
+    rejected = _run("logout_network_rejection")
+    assert rejected["storage"] == {}
+    assert "Déconnexion locale effectuée, mais la révocation serveur n’a pas pu être confirmée." in rejected["messageValues"]
+    assert {urlsplit(call["path"]).path for call in rejected["calls"] if "/auth/logout" in call["path"]} == {
+        "/api/v1/auth/logout",
+        "/api/v1/auth/logout/refresh",
+    }
 
 
 def test_business_request_401_refreshes_once_and_retries_the_same_request():

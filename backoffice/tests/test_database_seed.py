@@ -160,6 +160,26 @@ def test_second_seed_is_strictly_without_effect(clean_postgres_app):
     ] == snapshot["stocks"]
 
 
+def test_seed_is_idempotent_when_existing_admin_token_version_is_positive(
+    clean_postgres_app,
+):
+    _run_seed()
+    admin = db.session.scalar(select(User).where(User.username == "admin"))
+    rotated_password = "rotated-admin-password"
+    admin.password_hash = bcrypt.hashpw(
+        rotated_password.encode("utf-8"), bcrypt.gensalt(rounds=4)
+    ).decode("utf-8")
+    admin.token_version = 7
+    db.session.commit()
+
+    result = _run_seed(password=rotated_password)
+
+    db.session.refresh(admin)
+    assert result.admin_created is False
+    assert admin.token_version == 7
+    assert bcrypt.checkpw(rotated_password.encode("utf-8"), admin.password_hash.encode("utf-8"))
+
+
 @pytest.mark.parametrize(
     ("password", "product_id", "rounds"),
     [

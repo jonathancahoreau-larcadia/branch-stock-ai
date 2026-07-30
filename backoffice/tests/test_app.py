@@ -2,6 +2,10 @@
 
 from flask import Flask
 
+import pytest
+
+from backoffice import create_app
+
 
 def test_application_starts(app):
     """The application factory returns a configured Flask application."""
@@ -42,3 +46,15 @@ def test_application_registers_expected_route_groups(app):
         "Missing expected route groups: "
         + ", ".join(sorted(missing_prefixes))
     )
+
+
+@pytest.mark.parametrize("key", ["JWT_SECRET_KEY", "DATABASE_URL"])
+def test_create_app_rejects_runtime_placeholder_before_database_use(monkeypatch, key):
+    monkeypatch.setenv("JWT_SECRET_KEY", "real-jwt-secret")
+    monkeypatch.setenv("DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.setenv(key, "replace-with-secret")
+
+    with pytest.raises((RuntimeError, ValueError)) as error:
+        create_app({"TESTING": False, "SQLALCHEMY_DATABASE_URI": "sqlite+pysqlite:///:memory:"})
+
+    assert "replace-with-secret" not in str(error.value)

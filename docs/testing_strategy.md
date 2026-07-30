@@ -166,6 +166,11 @@ Expected behavior:
 - clear error;
 - no silent failure.
 
+Automated doubles additionally cover a single page, multiple pages, a final
+partial page, an inconsistent offset or count, a repeated page, an
+intermediate error and duplicate product identifiers. No partial catalogue is
+returned after any invalid page.
+
 ---
 
 ## 9. Stock MCP Tests
@@ -211,6 +216,12 @@ Scenarios:
 - no invented quantity;
 - requests are independent;
 - tool-call logs show tool name and status without secrets.
+- all four families in French and English, including accents, apostrophes,
+  punctuation and hyphenated identifiers;
+- Ollama enabled and disabled without any public-response reformulation;
+- full public product-detail projection;
+- product availability excludes zero-quantity branches and reports a real
+  empty positive-stock result explicitly.
 
 ---
 
@@ -228,6 +239,16 @@ Scenarios:
 - technical error displayed clearly;
 - no conversation history required;
 - realistic examples work.
+- role visibility remains effective when a panel also has a `display` rule;
+- logout always clears local tokens and distinguishes confirmed revocation,
+  HTTP failure and network failure.
+
+Static Compose tests verify the two-network membership, loopback-only UI port
+bindings, absence of published business ports and HTTP healthcheck commands.
+When a Docker daemon is available, the runtime proof must also record eight
+healthy services, HTTP 200 on ports 8080 and 3000, and the exact four security
+headers on `/`, `/health` where applicable. A real-browser role-visibility
+check remains a separate manual proof when no browser engine is installed.
 
 ---
 
