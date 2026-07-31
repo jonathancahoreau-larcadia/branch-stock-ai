@@ -42,4 +42,3 @@ function showFlash(message, category) {
   // Auto-dismiss after 5 seconds
   setTimeout(() => div.remove(), 5000);
 }
-</write_to_file>
