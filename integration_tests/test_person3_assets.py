@@ -140,6 +140,35 @@ def test_backoffice_global_hidden_rule_overrides_layout_display_rules():
     assert re.search(r"display\s*:\s*none\s*!important", hidden.group("body"))
 
 
+def test_backoffice_redesign_remains_native_responsive_and_session_scoped():
+    html = read("backoffice/static/index.html")
+    css = read("backoffice/static/styles.css")
+    javascript = read("backoffice/static/app.js")
+
+    for marker in (
+        'class="sidebar"',
+        'class="topbar"',
+        'id="dashboard-view"',
+        'id="detail-drawer"',
+        'id="action-modal"',
+        'id="toast-region"',
+    ):
+        assert marker in html
+    assert "<svg" in html
+    assert not re.search(
+        r"<(?:script|link|img|iframe)\b[^>]*(?:src|href)=[\"'](?:https?:)?//",
+        html,
+        re.I,
+    )
+    assert len(re.findall(r"@media\s*\([^)]*max-width", css)) >= 3
+    assert "prefers-reduced-motion: reduce" in css
+    assert "refreshPromise" in javascript
+    assert "Promise.allSettled" in javascript
+    assert "sessionStorage" in javascript
+    assert "textContent" in javascript
+    assert "localStorage" not in javascript
+
+
 def test_dockerfiles_use_declared_manifests_without_forbidden_installations():
     for path in DEPLOYMENT_FILES:
         content = read_if_present(path).casefold()
