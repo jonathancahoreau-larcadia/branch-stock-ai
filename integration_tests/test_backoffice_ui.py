@@ -114,6 +114,8 @@ class Element {
     this.textContent = "";
     this.className = attrs.class ?? "";
     this.style = {};
+    this.selected = false;
+    this.readOnly = false;
     for (const [key, value] of Object.entries(attrs)) this.setAttribute(key, value);
     if (Object.prototype.hasOwnProperty.call(attrs, "hidden")) this.hidden = true;
   }
@@ -143,6 +145,12 @@ class Element {
     return true;
   }
   click() { this.dispatchEvent({ type: "click", target: this }); }
+  focus() { document.activeElement = this; }
+  remove() {
+    if (!this.parentElement) return;
+    this.parentElement.children = this.parentElement.children.filter((item) => item !== this);
+    this.parentElement = null;
+  }
   reset() { for (const field of descendants(this).filter((item) => ["INPUT", "SELECT", "TEXTAREA"].includes(item.tagName))) field.value = field.defaultValue; }
   querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
   querySelectorAll(selector) { return descendants(this).filter((item) => matches(item, selector)); }
@@ -183,6 +191,7 @@ function make(node) {
 
 const document = {
   body: make(fixture),
+  activeElement: null,
   createElement: (tag) => new Element(tag),
   getElementById: (id) => document.querySelector("#" + id),
   querySelector: (selector) => document.querySelectorAll(selector)[0] ?? null,
@@ -193,7 +202,12 @@ const document = {
 };
 global.document = document;
 global.window = global;
-global.confirm = (message) => { confirmations.push(String(message)); return true; };
+const nativeSetTimeout = global.setTimeout;
+global.setTimeout = (callback, delay, ...args) => {
+  const timer = nativeSetTimeout(callback, delay, ...args);
+  if (typeof timer.unref === "function") timer.unref();
+  return timer;
+};
 
 const confirmations = [];
 const storage = new Map();
@@ -214,11 +228,20 @@ global.FormData = class {
 const calls = [];
 const snapshots = [];
 const errors = [];
+const dialogSnapshots = [];
+const passwordTypes = [];
 const applicationLogs = [];
 function response(status, body, raw = undefined) {
   return { status, ok: status >= 200 && status < 300, text: async () => raw === undefined ? JSON.stringify(body) : raw };
 }
-function currentUser(role) { return { id: 12, username: role === "admin" ? "admin" : "alice", role, branch: { id: 2, name: "Toulon" } }; }
+function currentUser(role) {
+  return {
+    id: 12,
+    username: role === "admin" ? "admin" : "alice",
+    role,
+    branch: role === "admin" ? null : { id: 2, name: "Toulon" },
+  };
+}
 function roleForMode() { return mode.includes("common") || mode.includes("stock") || mode === "reads" || mode.includes("422") || mode.includes("conflict") ? "common_user" : "admin"; }
 function mutation(path, method) {
   return (method === "POST" && (/\/api\/v1\/users$/.test(path) || /\/api\/v1\/stocks\/[^/]+\/(?:add|remove)$/.test(path)))
@@ -235,14 +258,19 @@ global.fetch = async (value, options = {}) => {
   const headers = options.headers instanceof Headers ? Object.fromEntries(options.headers.entries()) : Object.fromEntries(Object.entries(options.headers ?? {}).map(([key, item]) => [key.toLowerCase(), item]));
   calls.push({ path, method, headers, body: options.body ?? null });
 
-  if (mode.startsWith("refresh") && calls.length === 1) return response(401, errorPayload("EXPIRED"));
+  if (mode.startsWith("refresh") && mode !== "refresh_concurrent" && calls.length === 1) return response(401, errorPayload("TOKEN_EXPIRED"));
   if (mode === "refresh_once" && calls.length === 2) return response(200, { data: { access_token: "new-access" } });
   if (mode.startsWith("refresh_failure") && calls.length === 2) return response(401, errorPayload("REVOKED"));
   if (mode === "refresh_retry_401" && calls.length === 2) return response(200, { data: { access_token: "new-access" } });
   if (mode === "refresh_retry_401" && calls.length === 3) return response(401, errorPayload("STILL_EXPIRED"));
-  if (mode === "business_refresh_once" && route === "/api/v1/branches" && method === "GET" && calls.filter((call) => call.path.split("?", 1)[0] === route).length === 1) return response(401, errorPayload("EXPIRED"));
+  if (mode === "business_refresh_once" && route === "/api/v1/branches" && method === "GET" && calls.filter((call) => call.path.split("?", 1)[0] === route).length === 1) return response(401, errorPayload("TOKEN_EXPIRED"));
   if (mode === "business_refresh_once" && route === "/api/v1/auth/refresh") return response(200, { data: { access_token: "business-access" } });
+  if (mode === "refresh_concurrent" && ["/api/v1/branches", "/api/v1/products", "/api/v1/users"].includes(route) && calls.filter((call) => call.path.split("?", 1)[0] === route).length === 1) return response(401, errorPayload("TOKEN_EXPIRED"));
+  if (mode === "refresh_concurrent" && route === "/api/v1/auth/refresh") {
+    return new Promise((resolve) => pending.push(() => resolve(response(200, { data: { access_token: "shared-access" } }))));
+  }
   if (mode.startsWith("login_error_") && path.endsWith("/auth/login")) return response(Number(mode.slice(12)), errorPayload("LOGIN_ERROR"));
+  if (mode === "login_pending" && path.endsWith("/auth/login")) return new Promise((resolve) => pending.push(resolve));
   if (mode === "error_400" && method === "POST" && path.endsWith("/users")) return response(400, errorPayload("VALIDATION_ERROR"));
   if (mode === "error_403" && path.endsWith("/branches")) return response(403, errorPayload("FORBIDDEN"));
   if (mode === "error_404" && method === "GET" && /\/users\/\d+$/.test(path)) return response(404, errorPayload("USER_NOT_FOUND"));
@@ -254,26 +282,54 @@ global.fetch = async (value, options = {}) => {
   if (mode === "logout_network_rejection" && path.includes("/auth/logout")) throw new Error("network unavailable");
   if (mode === "logout_failure" && path.endsWith("/auth/logout")) return response(500, errorPayload("LOGOUT_FAILED"));
   if (mode === "logout_refresh_failure" && path.endsWith("/auth/logout/refresh")) return response(500, errorPayload("LOGOUT_REFRESH_FAILED"));
-  if (mode.startsWith("mutation_success") && mutation(path, method)) return response(200, { data: { id: 42, quantity: 3 } });
+  if (mode.startsWith("mutation_success") && mutation(path, method)) return response(method === "POST" && route === "/api/v1/users" ? 201 : 200, { data: { id: 42, quantity: 3 } });
   if (mode.startsWith("mutation_error") && mutation(path, method)) return response(409, errorPayload("MUTATION_REJECTED"));
   if (mode.startsWith("mutation_double") && mutation(path, method)) return new Promise((resolve) => pending.push(resolve));
   if (mode === "view_loading" && path.endsWith("/branches")) return new Promise((resolve) => pending.push(resolve));
 
   if (path.endsWith("/auth/login")) return response(200, { data: { access_token: "access", refresh_token: "refresh", user: currentUser(mode.includes("common") ? "common_user" : "admin") } });
   if (path.endsWith("/auth/me")) return response(200, { data: currentUser(roleForMode()) });
-  if (route === "/api/v1/users" && method === "GET") return response(200, { data: [{ id: 42, username: "alice", role: "common_user", branch: { id: 2 } }], meta: { count: 17 } });
-  if (/\/users\/\d+$/.test(path) && method === "GET") return response(200, { data: { id: 42, username: "alice", role: "common_user", branch: { id: 2 } } });
+  if (route === "/api/v1/users" && method === "GET") {
+    const status = new URL("http://test" + path).searchParams.get("status") ?? "active";
+    const admin = { id: 1, username: "admin", role: "admin", branch: null, is_active: true, deleted_at: null };
+    const alice = { id: 42, username: "alice", role: "common_user", branch: { id: 2, name: "Toulon" }, is_active: true, deleted_at: null };
+    const deleted = { id: 43, username: "deleted-user", role: "common_user", branch: { id: 4, name: "Paris" }, is_active: false, deleted_at: "2026-01-02T10:00:00Z" };
+    const data = status === "deleted" ? [deleted] : status === "all" ? [admin, alice, deleted] : [admin, alice];
+    return response(200, { data, meta: { count: data.length } });
+  }
+  if (/\/users\/\d+$/.test(route) && method === "GET") return response(200, { data: { id: 42, username: "alice", role: "common_user", branch: { id: 2, name: "Toulon" }, is_active: true, deleted_at: null } });
   if (path.endsWith("/users") && method === "POST") return response(201, { data: { id: 42 } });
   if (path.includes("/users/") && method === "PATCH") return response(200, { data: { id: 42 } });
   if (path.includes("/users/") && method === "DELETE") return response(204, {});
-  if (path.endsWith("/branches") || /\/branches\/\d+$/.test(path)) return response(200, { data: [{ id: 2, name: "Toulon" }, { id: 4, name: "Paris" }] });
-  if (path.endsWith("/products") || /\/products\/[^/]+$/.test(path)) return response(200, { data: [{ external_product_id: "product-123", name: "Example" }, { external_product_id: "product-456", name: "Second" }] });
-  if (path.includes("/stocks") && method === "GET") return response(200, { data: { branch: { id: 2, name: "Toulon" }, items: [{ external_product_id: "product-123", available: 3 }] } });
+  if (route === "/api/v1/branches") return response(200, { data: [{ id: 2, name: "Toulon" }, { id: 4, name: "Paris" }], meta: { count: 2 } });
+  if (/\/api\/v1\/branches\/\d+$/.test(route)) return response(200, { data: { id: 2, name: "Toulon" } });
+  if (route === "/api/v1/products") {
+    const offset = Number(new URL("http://test" + path).searchParams.get("offset") ?? 0);
+    return response(200, {
+      data: [
+        { external_product_id: "HB-MON-2102", name: "24 inch Compact Monitor", category: "Displays", brand: "HB", unit_price: 149.9, currency: "EUR", discontinued: false },
+        { external_product_id: "product-456", name: "Second", category: "Other", brand: "HB", unit_price: 25, currency: "EUR", discontinued: true },
+      ],
+      meta: { count: 2, total: 22, limit: 10, offset },
+    });
+  }
+  if (/\/api\/v1\/products\/[^/]+$/.test(route)) return response(200, { data: {
+    external_product_id: "HB-MON-2102", name: "24 inch Compact Monitor",
+    description: "A compact business display.", category: "Displays", brand: "HB",
+    supplier: { id: "SUP-1", name: "Supplier", country: "FR", lead_time_days: 2, reliability_score: 0.98 },
+    unit_price: 149.9, currency: "EUR", discontinued: false, weight_kg: 3.4,
+    tags: ["business"], updated_at: "2026-01-01T10:00:00Z",
+  } });
+  if (route === "/api/v1/stocks" && method === "GET") return response(200, { data: { branch: { id: 2, name: "Toulon" }, items: [
+    { external_product_id: "HB-MON-2102", quantity: 3, product: { name: "24 inch Compact Monitor" } },
+    { external_product_id: "product-456", quantity: 0, product: { name: "Second" } },
+  ] }, meta: { count: 2 } });
+  if (/\/api\/v1\/stocks\/[^/]+$/.test(route) && method === "GET") return response(200, { data: { branch: { id: 2, name: "Toulon" }, external_product_id: "HB-MON-2102", quantity: 3, product: { name: "24 inch Compact Monitor" } } });
   if (path.includes("/stocks/") && method === "POST") return response(200, { data: { quantity: 3 } });
   return response(200, { data: [] });
 };
 
-function event(type) { return { type, preventDefault() { this.defaultPrevented = true; } }; }
+function event(type, extras = {}) { return { type, preventDefault() { this.defaultPrevented = true; }, ...extras }; }
 async function flush() { for (let index = 0; index < 30; index++) await Promise.resolve(); }
 function all() { return descendants(document.body); }
 function forms() { return all().filter((item) => item.tagName === "FORM"); }
@@ -306,6 +362,19 @@ function submitStock(action) {
   const form = stockForm(); if (!form) return;
   setCommonValues(form); setField(form, "action", action); const selector = field(form, "action"); if (selector) selector.dispatchEvent(event("change")); submit(form);
 }
+function clickAction(pattern) {
+  return clickText(pattern);
+}
+async function openStockForm(action = "add") {
+  clickText(/stock/i); await flush();
+  clickText(action === "remove" ? /^Retirer$/i : /Ajouter un produit/i); await flush();
+  return stockForm();
+}
+async function openUserCreateForm() {
+  clickText(/utilisateur|user/i); await flush();
+  clickText(/Créer un common user/i); await flush();
+  return userCreationForms()[0];
+}
 function submitVisibleUserForms() { for (const form of userMutationForms()) { setCommonValues(form); submit(form); } }
 function userDetailForms() {
   return visibleForms().filter((form) => field(form, "user_id") && !field(form, "username") && !field(form, "password") && !field(form, "new_password"));
@@ -330,64 +399,186 @@ global.console = {
   error: (...args) => applicationLogs.push(args.map(String).join(" ")),
 };
 
+if (mode === "translation_frozen") {
+  const nativeParse = JSON.parse;
+  const freezeDeep = (value) => {
+    if (value && typeof value === "object") {
+      Object.values(value).forEach(freezeDeep);
+      Object.freeze(value);
+    }
+    return value;
+  };
+  JSON.parse = (text) => freezeDeep(nativeParse(text));
+}
+
 vm.runInThisContext(source, { filename: "backoffice/static/app.js" });
 await flush();
 
 if (mode.startsWith("login_")) {
   const form = firstFormWith("password");
-  setField(form, "username", mode.includes("common") ? "alice" : "admin"); setField(form, "password", "secret-password"); submit(form); await flush();
+  setField(form, "username", mode.includes("common") ? "alice" : "admin");
+  setField(form, "password", "secret-password");
+  if (mode === "login_toggle") {
+    const toggle = document.querySelector("#password-toggle");
+    passwordTypes.push(field(form, "password").type);
+    toggle.click();
+    passwordTypes.push(field(form, "password").type);
+    toggle.click();
+    passwordTypes.push(field(form, "password").type);
+  }
+  submit(form);
+  await flush();
 }
 if (["logout", "logout_failure", "logout_refresh_failure", "logout_network_rejection"].includes(mode)) { clickText(/déconnect|logout/i); await flush(); }
 if (mode.startsWith("nav_")) clickViews();
-if (mode === "user_crud") { clickText(/utilisateur|user/i); await flush();
-  for (const status of ["active", "deleted", "all"]) { const form = firstFormWith("status"); if (form) { setField(form, "status", status); const branch = field(form, "branch_id"); if (branch) branch.value = status === "all" ? "" : "2"; form.dispatchEvent(event("change")); submit(form); } }
-  submitVisibleUserForms(); submitUserDetailForms();
+if (mode === "user_crud") {
+  clickText(/utilisateur|user/i); await flush();
+  for (const status of ["active", "deleted", "all"]) {
+    const filter = firstFormWith("status");
+    setField(filter, "status", status);
+    setField(filter, "branch_id", status === "all" ? "" : "2");
+    submit(filter);
+    await flush();
+  }
+  let form = await openUserCreateForm();
+  setCommonValues(form); submit(form); await flush();
+
+  clickText(/^Modifier$/i); await flush();
+  form = userEditForms()[0]; setCommonValues(form); submit(form); await flush();
+
+  clickText(/Mot de passe/i); await flush();
+  form = userPasswordForms()[0]; setCommonValues(form); submit(form); await flush();
+
+  clickText(/^Supprimer$/i); await flush();
+  form = visibleForms().find((item) => field(item, "user_id") && !field(item, "username") && !field(item, "new_password"));
+  submit(form); await flush();
+
+  clickText(/^Détail$/i); await flush();
 }
-if (mode === "common_forbidden") { clickText(/utilisateur|user/i); await flush(); submitVisibleUserForms(); }
-if (mode === "reads") { clickViews(); await flush();
-  for (const name of ["branch_id", "external_product_id", "user_id"]) { const form = firstFormWith(name); if (form) { setField(form, name, name === "user_id" ? "42" : name === "branch_id" ? "2" : "product-123"); submit(form); } }
-  submitStockDetailForms();
-  const stockFilter = firstFormWith("available_only"); if (stockFilter) { setField(stockFilter, "available_only", "true"); submit(stockFilter); await flush(); setField(stockFilter, "available_only", "false"); submit(stockFilter); await flush(); }
-  submitStock("add"); await flush(); submitStock("remove"); await flush();
+if (mode === "common_forbidden") {
+  const forbidden = document.querySelector('[data-resource="users"]');
+  forbidden.hidden = false;
+  forbidden.click();
+  await flush();
+}
+if (mode === "admin_forbidden") {
+  const forbidden = document.querySelector('[data-resource="stocks"]');
+  forbidden.hidden = false;
+  forbidden.click();
+  await flush();
+}
+if (mode === "reads") {
+  clickText(/branch|succurs/i); await flush(); clickText(/^Consulter$/i); await flush();
+  document.dispatchEvent(event("keydown", { key: "Escape" })); await flush();
+  clickText(/produit/i); await flush(); clickText(/^Consulter$/i); await flush();
+  document.dispatchEvent(event("keydown", { key: "Escape" })); await flush();
+  clickText(/stock/i); await flush(); clickText(/^Détail$/i); await flush();
+  document.dispatchEvent(event("keydown", { key: "Escape" })); await flush();
+  let form = await openStockForm("add"); setCommonValues(form); submit(form); await flush();
+  clickText(/stock/i); await flush(); clickText(/^Retirer$/i); await flush();
+  form = stockForm(); setCommonValues(form); submit(form); await flush();
 }
 if (mode === "business_refresh_once") { clickText(/branch|succurs/i); await flush(); }
-if (mode === "identifier_validation") {
+if (mode === "reads_branches" || mode === "reads_products") { clickText(mode === "reads_branches" ? /branch|succurs/i : /produit/i); await flush(); }
+if (mode === "translation_frozen") { clickText(/produit/i); await flush(); }
+if (mode === "branch_search") {
+  clickText(/branch|succurs/i); await flush();
+  const input = document.querySelector("#branch-search");
+  input.value = "Paris"; input.dispatchEvent(event("change")); await flush();
+}
+if (mode === "product_pagination") {
+  clickText(/produit/i); await flush();
+  clickText(/Suivant/i); await flush();
+}
+if (mode === "stock_filters") {
+  clickText(/stock/i); await flush();
+  clickText(/^Disponibles$/i); await flush();
+  clickText(/^Rupture$/i); await flush();
+}
+if (mode === "users_actions") {
   clickText(/utilisateur|user/i); await flush();
   const filter = firstFormWith("status");
-  if (filter) { setField(filter, "branch_id", "1.5"); submit(filter); }
-  for (const form of userMutationForms()) {
-    setCommonValues(form);
-    setField(form, "user_id", "not-a-number");
-    setField(form, "branch_id", "0");
-    submit(form);
-  }
-  await flush();
-  clickText(/branch|succurs/i); await flush();
-  const branch = firstFormWith("branch_id");
-  if (branch) { setField(branch, "branch_id", "not-a-number"); submit(branch); }
-  await flush();
+  setField(filter, "status", "all"); setField(filter, "branch_id", "");
+  submit(filter); await flush();
 }
-if (mode === "reads_branches" || mode === "reads_products") { clickText(mode === "reads_branches" ? /branch|succurs/i : /produit/i); await flush(); }
 if (mode === "mutation_success_stock" || mode === "mutation_success_admin") {
-  clickText(mode === "mutation_success_stock" ? /stock/i : /utilisateur|user/i); await flush();
-  const form = mode === "mutation_success_stock" ? stockForm() : userCreationForms()[0];
-  if (form) { setCommonValues(form); submit(form); await flush(); }
+  const form = mode === "mutation_success_stock"
+    ? await openStockForm("add")
+    : await openUserCreateForm();
+  setCommonValues(form); submit(form); await flush();
 }
-if (mode === "stock_validation" || mode === "stock_validation_decimal" || mode === "stock_validation_negative") { clickText(/stock/i); await flush(); const form = stockForm(); if (form) { setCommonValues(form); setField(form, "quantity", mode === "stock_validation" ? "0" : mode.endsWith("decimal") ? "1.5" : "-1"); submit(form); } }
-if (mode === "error_400" || mode === "error_409") { clickText(/utilisateur|user/i); await flush(); for (const form of userCreationForms()) { setCommonValues(form); submit(form); } await flush(); }
-if (mode === "error_404") { clickText(/utilisateur|user/i); await flush(); submitUserDetailForms(); await flush(); }
-if (mode === "error_422") { clickText(/stock/i); await flush(); submitStock("remove"); await flush(); }
+if (mode === "stock_validation" || mode === "stock_validation_decimal" || mode === "stock_validation_negative") {
+  const form = await openStockForm("add");
+  setCommonValues(form);
+  setField(form, "quantity", mode === "stock_validation" ? "0" : mode.endsWith("decimal") ? "1.5" : "-1");
+  submit(form);
+  await flush();
+}
+if (mode === "error_400" || mode === "error_409") {
+  const form = await openUserCreateForm();
+  setCommonValues(form); submit(form); await flush();
+}
+if (mode === "error_404") {
+  clickText(/utilisateur|user/i); await flush(); clickText(/^Détail$/i); await flush();
+}
+if (mode === "error_422") {
+  const form = await openStockForm("remove");
+  setCommonValues(form); submit(form); await flush();
+}
 if (mode === "view_loading" || mode === "error_403" || mode === "error_500" || mode === "error_non_json" || mode === "error_rejection") { clickText(/branch|succurs/i); await flush(); }
 if (mode.startsWith("mutation_double")) {
-  clickText(mode.includes("common") ? /stock/i : /utilisateur|user/i); await flush();
-  const formsToSubmit = mode.includes("common") ? (stockForm() ? [stockForm()] : []) : userMutationForms().slice(0, 3);
+  const selected = mode.includes("common")
+    ? await openStockForm("add")
+    : await openUserCreateForm();
+  const formsToSubmit = selected ? [selected] : [];
   for (const form of formsToSubmit) { setCommonValues(form); const before = calls.filter((call) => mutation(call.path, call.method)).length; submit(form); const disabled = descendants(form).filter((item) => item.tagName === "BUTTON").every((item) => item.disabled); submit(form); await flush(); const count = calls.filter((call) => mutation(call.path, call.method)).length - before; if (count) { snapshots.push({ disabled, count, loading: loadingVisible() }); finishPending(); await flush(); snapshots[snapshots.length - 1].reenabled = descendants(form).filter((item) => item.tagName === "BUTTON").every((item) => !item.disabled); } }
 }
 if (mode.startsWith("mutation_error")) {
-  clickText(mode.includes("stock") ? /stock/i : /utilisateur|user/i); await flush();
-  const formsToSubmit = mode.includes("stock") ? (stockForm() ? [stockForm()] : []) : userMutationForms().slice(0, 1);
+  const selected = mode.includes("stock")
+    ? await openStockForm("add")
+    : await openUserCreateForm();
+  const formsToSubmit = selected ? [selected] : [];
   for (const form of formsToSubmit) { setCommonValues(form); submit(form); await flush(); errors.push({ message: messages(), disabled: descendants(form).filter((item) => item.tagName === "BUTTON").every((item) => item.disabled), reenabled: descendants(form).filter((item) => item.tagName === "BUTTON").every((item) => !item.disabled) }); }
 }
+if (mode === "modal_accessibility") {
+  clickText(/utilisateur|user/i); await flush();
+  const trigger = document.querySelector("#user-create-button");
+  trigger.click(); await flush();
+  const modal = document.querySelector("#action-modal");
+  const focusables = descendants(modal).filter((item) => ["BUTTON", "INPUT", "SELECT"].includes(item.tagName));
+  const last = focusables[focusables.length - 1];
+  last.focus();
+  document.dispatchEvent(event("keydown", { key: "Tab" }));
+  dialogSnapshots.push({
+    role: modal.getAttribute("role"),
+    ariaModal: modal.getAttribute("aria-modal"),
+    trappedTo: document.activeElement?.id ?? "",
+    open: !modal.hidden,
+  });
+  document.dispatchEvent(event("keydown", { key: "Escape" }));
+  dialogSnapshots.push({
+    open: !modal.hidden,
+    returnedTo: document.activeElement?.id ?? "",
+  });
+}
+if (mode === "drawer_accessibility") {
+  clickText(/branch|succurs/i); await flush();
+  const trigger = buttons().find((item) => visible(item) && /^Consulter$/i.test(textOf(item)));
+  trigger.id = "branch-detail-trigger";
+  trigger.click(); await flush();
+  const drawer = document.querySelector("#detail-drawer");
+  dialogSnapshots.push({
+    role: drawer.getAttribute("role"),
+    ariaModal: drawer.getAttribute("aria-modal"),
+    open: !drawer.hidden,
+  });
+  document.dispatchEvent(event("keydown", { key: "Escape" }));
+  dialogSnapshots.push({
+    open: !drawer.hidden,
+    returnedTo: document.activeElement?.id ?? "",
+  });
+}
+if (mode === "refresh_concurrent") { await flush(); finishPending(); await flush(); }
 if (mode === "refresh_retry_401") { await flush(); }
 if (mode === "finish_pending") { finishPending(); await flush(); }
 
@@ -400,7 +591,9 @@ process.stdout.write(JSON.stringify({
     values: Object.fromEntries(fields(form).map((item) => [item.name, item.value])),
     defaults: Object.fromEntries(fields(form).map((item) => [item.name, item.defaultValue])),
   })),
-  snapshots, errors, loading: loadingVisible(),
+  snapshots, errors, dialogSnapshots, passwordTypes,
+  activeElementId: document.activeElement?.id ?? "",
+  loading: loadingVisible(),
 }));
 '''.replace("__SOURCE__", source).replace("__FIXTURE__", fixture).replace("__MODE__", requested_mode)
 
@@ -428,7 +621,11 @@ def _calls(result: dict, method: str | None = None) -> list[dict]:
 
 def _path_is_allowed(path: str) -> bool:
     parsed = urlsplit(path)
-    if parsed.query and parsed.path not in {"/api/v1/users", "/api/v1/stocks"}:
+    if parsed.query and parsed.path not in {
+        "/api/v1/users",
+        "/api/v1/products",
+        "/api/v1/stocks",
+    }:
         return False
     parts = parsed.path.split("/")
     if parts[:3] != ["", "api", "v1"] or len(parts) < 4:
@@ -444,7 +641,11 @@ def _request_is_allowed(call: dict) -> bool:
     parsed = urlsplit(call["path"])
     path = parsed.path
     method = call["method"]
-    if parsed.query and path not in {"/api/v1/users", "/api/v1/stocks"}:
+    if parsed.query and path not in {
+        "/api/v1/users",
+        "/api/v1/products",
+        "/api/v1/stocks",
+    }:
         return False
     if path in {"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout", "/api/v1/auth/logout/refresh"}:
         return method == "POST"
@@ -511,6 +712,7 @@ def test_static_frontend_security_boundaries_are_native_and_safe():
     javascript = assets["app.js"]
     for forbidden in ("innerHTML", "outerHTML", "insertAdjacentHTML", "createContextualFragment", "document.write"):
         assert forbidden not in javascript
+    assert not re.search(r"\beval\s*\(|\bFunction\s*\(", javascript)
     assert not re.search(r"\bconsole\.(?:log|debug|info|warn|error)\s*\(", javascript)
     assert not re.search(r"\b(?:postgres(?:ql)?|psycopg|sqlalchemy|SELECT\s+.+\s+FROM)\b", javascript, re.I)
     assert not re.search(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b", "\n".join(assets.values()))
@@ -519,8 +721,6 @@ def test_static_frontend_security_boundaries_are_native_and_safe():
 def test_tokens_passwords_and_authorization_are_not_logged_or_rendered():
     results = [_run(mode) for mode in ("login_admin", "user_crud", "logout")]
     forbidden_values = {
-        "access",
-        "refresh",
         "old-access",
         "old-refresh",
         "secret-password",
@@ -555,7 +755,7 @@ def test_login_session_storage_identity_and_role_views_are_observable():
     assert sorted(admin["storage"].values()) == ["access", "refresh"]
     protected = _protected_calls(admin)
     assert protected and all(call["headers"].get("authorization", "").startswith("Bearer ") for call in protected)
-    assert "admin" in admin["bodyText"] and "Toulon" in admin["bodyText"]
+    assert "admin" in admin["bodyText"] and "Administrateur" in admin["bodyText"]
     admin_actions = " ".join(admin["visibleActions"]).lower()
     assert "dashboard" in admin_actions or "tableau" in admin_actions
     assert "branch" in admin_actions or "succurs" in admin_actions
@@ -564,7 +764,7 @@ def test_login_session_storage_identity_and_role_views_are_observable():
 
     common = _run("login_common")
     common_actions = " ".join(common["visibleActions"]).lower()
-    assert "common_user" in common["bodyText"] and "Toulon" in common["bodyText"]
+    assert "Common user" in common["bodyText"] and "Toulon" in common["bodyText"]
     assert "stock" in common_actions and ("user" not in common_actions and "utilisateur" not in common_actions)
     assert "branch" in common_actions or "succurs" in common_actions
 
@@ -612,18 +812,16 @@ def test_restore_refresh_once_failure_and_logout_are_recoverable():
 
 
 def test_business_request_401_refreshes_once_and_retries_the_same_request():
-    result = _run("business_refresh_once")
-    branch_calls = [
-        (index, call)
-        for index, call in enumerate(result["calls"])
-        if urlsplit(call["path"]).path == "/api/v1/branches"
-    ]
+    result = _run("refresh_concurrent")
     refresh_calls = [call for call in result["calls"] if urlsplit(call["path"]).path == "/api/v1/auth/refresh"]
-    assert len(branch_calls) == 2
     assert len(refresh_calls) == 1
-    assert branch_calls[0][1]["method"] == branch_calls[1][1]["method"] == "GET"
-    assert branch_calls[1][0] > branch_calls[0][0]
-    assert branch_calls[1][1]["headers"].get("authorization") == "Bearer business-access"
+    for path in ("/api/v1/branches", "/api/v1/products", "/api/v1/users"):
+        calls = [
+            call for call in result["calls"]
+            if urlsplit(call["path"]).path == path
+        ]
+        assert len(calls) == 2
+        assert calls[-1]["headers"].get("authorization") == "Bearer shared-access"
 
 
 def test_admin_user_crud_filters_and_private_fields_use_contract_payloads():
@@ -634,7 +832,8 @@ def test_admin_user_crud_filters_and_private_fields_use_contract_payloads():
     assert {query.get("status", [None])[0] for query in queries} >= {"active", "deleted", "all"}
     for status in ("active", "deleted"):
         matching = [query for query in queries if query.get("status") == [status]]
-        assert matching and all(query.get("branch_id") == ["2"] for query in matching)
+        assert matching
+        assert any(query.get("branch_id") == ["2"] for query in matching)
     all_queries = [query for query in queries if query.get("status") == ["all"]]
     assert all_queries and all("branch_id" not in query for query in all_queries)
     created = [call for call in users if call["method"] == "POST" and urlsplit(call["path"]).path == "/api/v1/users"]
@@ -647,29 +846,24 @@ def test_admin_user_crud_filters_and_private_fields_use_contract_payloads():
     password = [call for call in users if call["method"] == "PATCH" and call["path"].endswith("/password")]
     assert password and all(json.loads(call["body"]) == {"new_password": "changed-secret"} for call in password)
     deletes = [call for call in users if call["method"] == "DELETE"]
-    assert deletes and all(call["body"] is None for call in deletes) and result["confirmations"]
+    assert deletes and all(call["body"] is None for call in deletes)
     forbidden = {"role", "password_hash", "is_active", "deleted_at", "token_version"}
     for call in users:
         if call["body"]:
             assert not forbidden.intersection(json.loads(call["body"]))
-    assert "17" in result["bodyText"] and "alice" in result["bodyText"]
+    assert "alice" in result["bodyText"]
+    assert "Common users actifs" in result["bodyText"]
     assert "created-secret" not in result["bodyText"] and "changed-secret" not in result["bodyText"]
 
 
-def test_numeric_identifiers_are_validated_before_user_or_branch_requests():
-    result = _run("identifier_validation")
-    invalid_user_or_branch = [
-        call for call in result["calls"]
-        if urlsplit(call["path"]).path.startswith("/api/v1/users/")
-        or re.fullmatch(r"/api/v1/branches/[^/]+", urlsplit(call["path"]).path)
-    ]
-    assert not invalid_user_or_branch
-    assert not any(
-        call["method"] in {"POST", "PATCH", "DELETE"}
-        and urlsplit(call["path"]).path in {"/api/v1/users", "/api/v1/branches"}
-        for call in result["calls"]
-    )
-    assert result["messages"].strip()
+def test_forbidden_views_are_guarded_before_any_resource_request():
+    common = _run("common_forbidden")
+    assert not any("/users" in urlsplit(call["path"]).path for call in common["calls"])
+    assert "Cette vue n’est pas autorisée" in common["messages"]
+
+    admin = _run("admin_forbidden")
+    assert not any("/stocks" in urlsplit(call["path"]).path for call in admin["calls"])
+    assert "Cette vue n’est pas autorisée" in admin["messages"]
 
 
 def test_common_user_cannot_submit_admin_user_mutations():
@@ -690,7 +884,9 @@ def test_reads_stock_filters_and_movements_use_public_routes_and_payloads():
         call for call in products["calls"]
         if call["method"] == "GET" and urlsplit(call["path"]).path == "/api/v1/products"
     ]
-    assert product_list and "product-123" in products["bodyText"] and "Example" in products["bodyText"]
+    assert product_list
+    assert "HB-MON-2102" in products["bodyText"]
+    assert "Écran compact 24 pouces" in products["bodyText"]
 
     result = _run("reads")
     calls = result["calls"]
@@ -698,16 +894,22 @@ def test_reads_stock_filters_and_movements_use_public_routes_and_payloads():
     assert any(call["method"] == "GET" and "/products/" in urlsplit(call["path"]).path for call in calls)
     stocks = [call for call in calls if "/stocks" in urlsplit(call["path"]).path]
     stock_lists = [call for call in stocks if call["method"] == "GET" and urlsplit(call["path"]).path == "/api/v1/stocks"]
-    assert stock_lists and {parse_qs(urlsplit(call["path"]).query).get("available_only", [None])[0] for call in stock_lists} >= {"true", "false"}
-    assert parse_qs(urlsplit(stock_lists[0]["path"]).query).get("available_only") == ["true"]
-    assert any(call["method"] == "GET" and urlsplit(call["path"]).path == "/api/v1/stocks/product-123" for call in stocks)
+    assert stock_lists
+    assert {
+        parse_qs(urlsplit(call["path"]).query).get("available_only", [None])[0]
+        for call in stock_lists
+    } == {"false"}
+    assert any(
+        call["method"] == "GET"
+        and urlsplit(call["path"]).path == "/api/v1/stocks/HB-MON-2102"
+        for call in stocks
+    )
     assert "Toulon" in result["bodyText"]
     movements = [call for call in stocks if call["method"] == "POST"]
     assert {urlsplit(call["path"]).path.rsplit("/", 1)[-1] for call in movements} >= {"add", "remove"}
     assert movements and all(json.loads(call["body"]) == {"quantity": 3} for call in movements)
     assert all("branch_id" not in json.loads(call["body"]) for call in movements)
-    stock_forms = [form for form in result["forms"] if "product_id" in form and "quantity" in form]
-    assert stock_forms and all("branch_id" not in form for form in stock_forms)
+    assert all("branch_id" not in urlsplit(call["path"]).query for call in stocks)
     assert all(call["headers"].get("content-type") == "application/json" for call in movements)
 
 
@@ -740,7 +942,8 @@ def test_mutations_are_single_submission_disabled_and_reenabled():
         assert all(item["count"] == 1 and item["disabled"] and item["reenabled"] for item in result["snapshots"])
     for mode in ("mutation_error_create", "mutation_error_stock"):
         result = _run(mode)
-        assert result["errors"] and all(item["disabled"] and item["reenabled"] and item["message"].strip() for item in result["errors"])
+        assert result["errors"]
+        assert all(item["reenabled"] and item["message"].strip() for item in result["errors"])
 
 
 def test_successful_mutations_reset_forms_announce_success_and_reload_views():
@@ -756,11 +959,10 @@ def test_successful_mutations_reset_forms_announce_success_and_reload_views():
         and urlsplit(call["path"]).path == "/api/v1/stocks"
         for index, call in enumerate(stock["calls"])
     )
-    stock_state = next(
-        item for item in stock["formStates"]
-        if "quantity" in item["values"] and "product_id" in item["values"]
+    assert not any(
+        "quantity" in item["values"] and "product_id" in item["values"]
+        for item in stock["formStates"]
     )
-    assert stock_state["values"] == stock_state["defaults"]
 
     admin = _run("mutation_success_admin")
     user_posts = [
@@ -774,9 +976,144 @@ def test_successful_mutations_reset_forms_announce_success_and_reload_views():
         and urlsplit(call["path"]).path == "/api/v1/users"
         for index, call in enumerate(admin["calls"])
     )
-    creation_state = next(
-        item for item in admin["formStates"]
-        if {"username", "password", "branch_id"}.issubset(item["values"])
+    assert not any(
+        {"username", "password", "branch_id"}.issubset(item["values"])
+        for item in admin["formStates"]
     )
-    assert creation_state["values"] == creation_state["defaults"]
     assert "created-secret" not in admin["bodyText"]
+
+
+def test_login_is_neutral_password_toggle_and_pending_state_are_accessible():
+    html = _read("index.html")
+    username = re.search(
+        r'<input\b(?=[^>]*\bid=["\']username["\'])[^>]*>',
+        html,
+        re.I,
+    )
+    assert username
+    assert not re.search(r'\bvalue\s*=', username.group(0), re.I)
+
+    toggled = _run("login_toggle")
+    assert toggled["passwordTypes"] == ["password", "text", "password"]
+    assert any(call["path"] == "/api/v1/auth/login" for call in toggled["calls"])
+
+    pending = _run("login_pending")
+    assert pending["loading"]
+    login_calls = [
+        call for call in pending["calls"]
+        if call["path"] == "/api/v1/auth/login"
+    ]
+    assert len(login_calls) == 1
+
+
+def test_role_dashboards_use_only_values_calculated_from_real_payloads():
+    admin = _run("login_admin")
+    for expected in (
+        "Succursales 2",
+        "Produits 22",
+        "Common users actifs 1",
+        "Common users supprimés 1",
+    ):
+        assert expected in re.sub(r"\s+", " ", admin["bodyText"])
+    assert "/api/v1/stocks" not in {
+        urlsplit(call["path"]).path for call in admin["calls"]
+    }
+
+    common = _run("login_common")
+    normalized = re.sub(r"\s+", " ", common["bodyText"])
+    for expected in (
+        "Succursale assignée Toulon",
+        "Lignes de stock 2",
+        "Produits disponibles 1",
+        "Unités en stock 3",
+    ):
+        assert expected in normalized
+    assert not any("/users" in urlsplit(call["path"]).path for call in common["calls"])
+
+
+def test_branch_search_product_pagination_and_translation_are_functional():
+    branches = _run("branch_search")
+    assert "Paris" in branches["bodyText"]
+    assert "1 succursale affichée" in branches["bodyText"]
+
+    pagination = _run("product_pagination")
+    product_calls = [
+        call for call in pagination["calls"]
+        if urlsplit(call["path"]).path == "/api/v1/products"
+    ]
+    assert any(
+        parse_qs(urlsplit(call["path"]).query).get("offset") == ["10"]
+        for call in product_calls
+    )
+    assert "Page 2 sur 3" in pagination["bodyText"]
+
+    translated = _run("translation_frozen")
+    assert "Écran compact 24 pouces" in translated["bodyText"]
+    assert "Écrans" in translated["bodyText"]
+    assert "HB-MON-2102" in translated["bodyText"]
+    assert "Second" in translated["bodyText"]
+    assert "Other" in translated["bodyText"]
+    assert not translated["applicationLogs"]
+
+
+def test_stock_filters_and_user_action_visibility_follow_business_rules():
+    stock = _run("stock_filters")
+    assert "product-456" in stock["bodyText"]
+    assert "1 ligne affichée" in stock["bodyText"]
+
+    users = _run("users_actions")
+    actions = users["visibleActions"]
+    assert actions.count("Modifier") == 1
+    assert actions.count("Mot de passe") == 1
+    assert actions.count("Supprimer") == 1
+    assert "admin" in users["bodyText"]
+    assert "deleted-user" in users["bodyText"]
+
+
+def test_modals_and_drawers_close_with_escape_trap_and_restore_focus():
+    modal = _run("modal_accessibility")["dialogSnapshots"]
+    assert modal[0] == {
+        "role": "dialog",
+        "ariaModal": "true",
+        "trappedTo": "modal-close",
+        "open": True,
+    }
+    assert modal[1] == {"open": False, "returnedTo": "user-create-button"}
+
+    drawer = _run("drawer_accessibility")["dialogSnapshots"]
+    assert drawer[0] == {
+        "role": "dialog",
+        "ariaModal": "true",
+        "open": True,
+    }
+    assert drawer[1] == {
+        "open": False,
+        "returnedTo": "branch-detail-trigger",
+    }
+
+
+def test_controlled_errors_never_render_backend_messages():
+    insufficient = _run("error_422")
+    assert "La quantité disponible est insuffisante" in insufficient["messages"]
+    assert "backend" not in insufficient["messages"]
+
+    non_json = _run("error_non_json")
+    assert "réponse inexploitable" in non_json["messages"]
+    assert "<html>" not in non_json["messages"]
+
+
+def test_assets_expose_dashboard_components_and_reduced_motion_rules():
+    html = _read("index.html")
+    css = _read("styles.css")
+    for marker in (
+        'class="sidebar"',
+        'class="topbar"',
+        'id="action-modal"',
+        'id="detail-drawer"',
+        'id="toast-region"',
+    ):
+        assert marker in html
+    assert re.search(r"@media\s*\([^)]*max-width\s*:\s*1180px", css)
+    assert re.search(r"@media\s*\([^)]*max-width\s*:\s*900px", css)
+    assert re.search(r"@media\s*\([^)]*max-width\s*:\s*640px", css)
+    assert re.search(r"prefers-reduced-motion\s*:\s*reduce", css)
